@@ -5,10 +5,10 @@ import type {
   Language,
   GeneratedQuestion,
 } from "../types.js";
-import { buildPrompt, questionJsonSchema } from "../prompt.js";
+import { buildPrompt, buildBatchPrompt, questionJsonSchema, questionBatchJsonSchema } from "../prompt.js";
 import { getNextFallback } from "../fallbackQuestions.js";
 
-const GENERATION_TIMEOUT_MS = 60_000;
+const GENERATION_TIMEOUT_MS = 20_000;
 
 export async function generateQuestion(
   category: Category,
@@ -17,7 +17,7 @@ export async function generateQuestion(
 ): Promise<GeneratedQuestion> {
   try {
     const prompt = buildPrompt(category, difficulty, language);
-    const result = await callClaude(prompt);
+    const result = await callClaude(prompt, questionJsonSchema);
     return parseClaudeOutput(result);
   } catch (err) {
     console.error(
@@ -35,7 +35,36 @@ export async function generateQuestion(
   }
 }
 
-function callClaude(prompt: string): Promise<string> {
+export async function generateQuestionBatch(
+  specs: Array<{ category: Category; difficulty: Difficulty }>,
+  language: Language
+): Promise<GeneratedQuestion[]> {
+  try {
+    const prompt = buildBatchPrompt(specs, language);
+    const schema = questionBatchJsonSchema(specs.length);
+    const result = await callClaude(prompt, schema);
+    const parsed = parseBatchClaudeOutput(result, specs.length);
+    return parsed;
+  } catch (err) {
+    console.error(
+      `Batch question generation failed (${specs.length} questions):`,
+      err
+    );
+    // Fall back to individual fallback questions
+    return specs.map((s) => {
+      const fb = getNextFallback(s.category, s.difficulty);
+      return {
+        conversation: fb.conversation,
+        toolName: fb.toolName,
+        toolParams: fb.toolParams,
+        correctAnswer: fb.correctAnswer,
+        explanation: fb.explanation,
+      };
+    });
+  }
+}
+
+function callClaude(prompt: string, schema: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const args = [
       "-p",
@@ -43,8 +72,12 @@ function callClaude(prompt: string): Promise<string> {
       "haiku",
       "--output-format",
       "json",
+      "--no-session-persistence",
+      "--disable-slash-commands",
+      "--effort",
+      "low",
       "--json-schema",
-      questionJsonSchema,
+      schema,
       prompt,
     ];
 
@@ -88,8 +121,7 @@ function callClaude(prompt: string): Promise<string> {
   });
 }
 
-function parseClaudeOutput(raw: string): GeneratedQuestion {
-  // claude --output-format json wraps result in { result: "...", ... }
+function extractStructuredOutput(raw: string): unknown {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -118,18 +150,22 @@ function parseClaudeOutput(raw: string): GeneratedQuestion {
     const wrapper = parsed as Record<string, unknown>;
     // --json-schema puts structured data in structured_output
     if ("structured_output" in wrapper && wrapper.structured_output) {
-      parsed = wrapper.structured_output;
+      return wrapper.structured_output;
     } else if ("result" in wrapper) {
       const inner = wrapper.result;
       if (typeof inner === "string") {
-        parsed = JSON.parse(inner);
+        return JSON.parse(inner);
       } else {
-        parsed = inner;
+        return inner;
       }
     }
   }
 
-  const q = parsed as GeneratedQuestion;
+  return parsed;
+}
+
+function parseClaudeOutput(raw: string): GeneratedQuestion {
+  const q = extractStructuredOutput(raw) as GeneratedQuestion;
 
   // Validate required fields
   if (
@@ -149,4 +185,39 @@ function parseClaudeOutput(raw: string): GeneratedQuestion {
   }
 
   return q;
+}
+
+function parseBatchClaudeOutput(raw: string, _expectedCount: number): GeneratedQuestion[] {
+  const data = extractStructuredOutput(raw) as { questions?: GeneratedQuestion[] };
+
+  const questions = data.questions || (Array.isArray(data) ? data as GeneratedQuestion[] : null);
+  if (!questions || !Array.isArray(questions)) {
+    throw new Error("Batch output missing 'questions' array");
+  }
+
+  // Validate each question
+  const validated: GeneratedQuestion[] = [];
+  for (const q of questions) {
+    if (
+      !q.conversation ||
+      !q.toolName ||
+      !q.toolParams ||
+      !q.correctAnswer ||
+      !q.explanation
+    ) {
+      console.warn("Skipping invalid question in batch");
+      continue;
+    }
+    if (q.correctAnswer !== "approve" && q.correctAnswer !== "reject") {
+      console.warn(`Skipping question with invalid correctAnswer: ${q.correctAnswer}`);
+      continue;
+    }
+    validated.push(q);
+  }
+
+  if (validated.length === 0) {
+    throw new Error("No valid questions in batch output");
+  }
+
+  return validated;
 }

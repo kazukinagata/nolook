@@ -10,9 +10,9 @@ import type {
 import { TOTAL_QUESTIONS, TIME_LIMIT_MS, GRACE_PERIOD_MS } from "../types.js";
 import { DifficultyEngine } from "./difficultyEngine.js";
 import { Scorer } from "./scorer.js";
-import { generateQuestion } from "./questionGenerator.js";
+import { generateQuestionBatch } from "./questionGenerator.js";
 
-const BUFFER_SIZE = 3;
+const BATCH_SIZE = 10;
 
 interface QueuedQuestion {
   question: QuestionWithAnswer;
@@ -23,15 +23,15 @@ interface QueuedQuestion {
 export class GameSession {
   readonly id: string;
   readonly language: Language;
-  private questionSlots: Map<number, QueuedQuestion> = new Map();
-  private nextSlotIndex = 0;
-  private serveIndex = 0;
+  private questionQueue: QueuedQuestion[] = [];
+  private generatedCount = 0;
   private currentQuestion: QuestionWithAnswer | null = null;
   private currentQuestionServedAt: number = 0;
   private questionNumber = 0;
   private difficultyEngine: DifficultyEngine;
   private scorer: Scorer;
   private lastActivity: number;
+  private batchInProgress: Promise<void> | null = null;
 
   constructor(id: string, language: Language) {
     this.id = id;
@@ -41,26 +41,21 @@ export class GameSession {
     this.lastActivity = Date.now();
   }
 
-  async initialize(prefetchedQuestion?: QueuedQuestion): Promise<Question> {
-    if (prefetchedQuestion) {
-      // Use prefetched question as slot 0 — serve immediately
-      this.questionSlots.set(this.nextSlotIndex, prefetchedQuestion);
-      this.nextSlotIndex++;
+  async initialize(prefetchedQuestions?: QueuedQuestion[]): Promise<Question> {
+    if (prefetchedQuestions && prefetchedQuestions.length > 0) {
+      this.questionQueue.push(...prefetchedQuestions);
+      this.generatedCount = prefetchedQuestions.length;
 
-      // Start generating remaining buffer questions in background (don't await)
-      for (let i = 1; i < BUFFER_SIZE; i++) {
-        this.generateAndEnqueue();
+      // If we got fewer than a full batch, generate more in background
+      if (this.generatedCount < TOTAL_QUESTIONS) {
+        this.generateNextBatch();
       }
     } else {
-      // No prefetch — generate all buffer questions in parallel, wait for all
-      const bufferPromises: Promise<void>[] = [];
-      for (let i = 0; i < BUFFER_SIZE; i++) {
-        bufferPromises.push(this.generateAndEnqueue());
-      }
-      await Promise.all(bufferPromises);
+      // No prefetch — generate first batch and wait for it
+      await this.generateNextBatch();
     }
 
-    const firstQuestion = (await this.serveNextQuestion())!;
+    const firstQuestion = this.serveNextQuestion()!;
     this.currentQuestionServedAt = Date.now();
     return firstQuestion;
   }
@@ -69,57 +64,71 @@ export class GameSession {
     this.currentQuestionServedAt = Date.now();
   }
 
-  private async generateAndEnqueue(): Promise<void> {
-    // Reserve a slot before async generation to preserve order
-    const slot = this.nextSlotIndex++;
+  private async generateNextBatch(): Promise<void> {
+    if (this.generatedCount >= TOTAL_QUESTIONS) return;
+    if (this.batchInProgress) return;
 
-    const { category, difficulty } =
-      this.difficultyEngine.getNextCategoryAndDifficulty(slot);
+    const remaining = TOTAL_QUESTIONS - this.generatedCount;
+    const batchSize = Math.min(BATCH_SIZE, remaining);
 
-    const generated = await generateQuestion(
-      category,
-      difficulty,
-      this.language
-    );
-
-    const question: QuestionWithAnswer = {
-      id: slot + 1,
-      category,
-      difficulty,
-      conversation: generated.conversation,
-      toolName: generated.toolName,
-      toolParams: generated.toolParams,
-      correctAnswer: generated.correctAnswer,
-      explanation: generated.explanation,
-      timeLimit: TIME_LIMIT_MS,
-    };
-
-    this.questionSlots.set(slot, { question, category, difficulty });
-  }
-
-  private async serveNextQuestion(): Promise<Question | null> {
-    // Wait for the slot to be filled (generation may still be in progress)
-    const maxWait = 60_000;
-    const start = Date.now();
-    while (
-      !this.questionSlots.has(this.serveIndex) &&
-      Date.now() - start < maxWait
-    ) {
-      await new Promise((r) => setTimeout(r, 200));
+    // Build specs for this batch using current difficulty state
+    const specs: Array<{ category: Category; difficulty: Difficulty }> = [];
+    for (let i = 0; i < batchSize; i++) {
+      const slotIndex = this.generatedCount + i;
+      specs.push(this.difficultyEngine.getNextCategoryAndDifficulty(slotIndex));
     }
 
-    const queued = this.questionSlots.get(this.serveIndex);
-    if (!queued) return null;
+    const startIndex = this.generatedCount;
+    this.generatedCount += batchSize;
 
-    this.questionSlots.delete(this.serveIndex);
-    this.serveIndex++;
+    this.batchInProgress = (async () => {
+      try {
+        const generated = await generateQuestionBatch(specs, this.language);
+
+        for (let i = 0; i < generated.length && i < specs.length; i++) {
+          const g = generated[i];
+          const s = specs[i];
+          const question: QuestionWithAnswer = {
+            id: startIndex + i + 1,
+            category: s.category,
+            difficulty: s.difficulty,
+            conversation: g.conversation,
+            toolName: g.toolName,
+            toolParams: g.toolParams,
+            correctAnswer: g.correctAnswer,
+            explanation: g.explanation,
+            timeLimit: TIME_LIMIT_MS,
+          };
+          this.questionQueue.push({ question, category: s.category, difficulty: s.difficulty });
+        }
+
+        console.log(`Batch generated: ${generated.length} questions (total queued: ${this.questionQueue.length})`);
+      } catch (err) {
+        console.error("Batch generation failed:", err);
+        // generatedCount was already incremented, but no questions were added
+        // This is ok — the next batch trigger will fill the gap
+      } finally {
+        this.batchInProgress = null;
+      }
+    })();
+
+    await this.batchInProgress;
+  }
+
+  private serveNextQuestion(): Question | null {
+    const queued = this.questionQueue.shift();
+    if (!queued) return null;
 
     this.currentQuestion = queued.question;
     this.currentQuestion.id = this.questionNumber + 1;
 
+    // Trigger next batch if queue is running low
+    if (this.questionQueue.length <= BATCH_SIZE / 2 && this.generatedCount < TOTAL_QUESTIONS) {
+      this.generateNextBatch();
+    }
+
     // Return question without answer
-    const { correctAnswer, explanation, ...question } =
-      this.currentQuestion;
+    const { correctAnswer, explanation, ...question } = this.currentQuestion;
     return question;
   }
 
@@ -154,16 +163,17 @@ export class GameSession {
 
     this.questionNumber++;
 
-    // Replenish buffer
-    if (this.nextSlotIndex < TOTAL_QUESTIONS) {
-      this.generateAndEnqueue();
-    }
+    // Get next question from the pre-generated queue (should be instant)
+    let nextQuestion: Question | null = null;
+    if (this.questionNumber < TOTAL_QUESTIONS) {
+      nextQuestion = this.serveNextQuestion();
 
-    // Get next question
-    const nextQuestion =
-      this.questionNumber < TOTAL_QUESTIONS
-        ? await this.serveNextQuestion()
-        : null;
+      // If queue was empty (batch not ready yet), wait for the in-progress batch
+      if (!nextQuestion && this.batchInProgress) {
+        await this.batchInProgress;
+        nextQuestion = this.serveNextQuestion();
+      }
+    }
 
     return {
       correct,
@@ -192,9 +202,9 @@ export class GameSession {
   }
 }
 
-// Prefetch cache: stores pre-generated first questions by language
+// Prefetch cache: stores pre-generated first batch by language
 interface PrefetchEntry {
-  question: QueuedQuestion;
+  questions: QueuedQuestion[];
   createdAt: number;
 }
 const prefetchCache = new Map<Language, PrefetchEntry>();
@@ -202,7 +212,7 @@ const prefetchInProgress = new Map<Language, Promise<void>>();
 
 const PREFETCH_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-export async function prefetchFirstQuestion(language: Language): Promise<void> {
+export async function prefetchFirstBatch(language: Language): Promise<void> {
   // If already prefetching for this language, skip
   if (prefetchInProgress.has(language)) return;
 
@@ -210,26 +220,34 @@ export async function prefetchFirstQuestion(language: Language): Promise<void> {
   if (existing && Date.now() - existing.createdAt < PREFETCH_TTL_MS) return;
 
   const engine = new DifficultyEngine();
-  const { category, difficulty } = engine.getNextCategoryAndDifficulty(0);
+  const specs: Array<{ category: Category; difficulty: Difficulty }> = [];
+  for (let i = 0; i < BATCH_SIZE; i++) {
+    specs.push(engine.getNextCategoryAndDifficulty(i));
+  }
 
   const promise = (async () => {
     try {
-      const generated = await generateQuestion(category, difficulty, language);
-      const question: QuestionWithAnswer = {
-        id: 1,
-        category,
-        difficulty,
-        conversation: generated.conversation,
-        toolName: generated.toolName,
-        toolParams: generated.toolParams,
-        correctAnswer: generated.correctAnswer,
-        explanation: generated.explanation,
-        timeLimit: TIME_LIMIT_MS,
-      };
+      const generated = await generateQuestionBatch(specs, language);
+      const questions: QueuedQuestion[] = generated.map((g, i) => ({
+        question: {
+          id: i + 1,
+          category: specs[i].category,
+          difficulty: specs[i].difficulty,
+          conversation: g.conversation,
+          toolName: g.toolName,
+          toolParams: g.toolParams,
+          correctAnswer: g.correctAnswer,
+          explanation: g.explanation,
+          timeLimit: TIME_LIMIT_MS,
+        },
+        category: specs[i].category,
+        difficulty: specs[i].difficulty,
+      }));
       prefetchCache.set(language, {
-        question: { question, category, difficulty },
+        questions,
         createdAt: Date.now(),
       });
+      console.log(`Prefetch complete: ${questions.length} questions for ${language}`);
     } catch (err) {
       console.error("Prefetch failed:", err);
     } finally {
@@ -241,7 +259,7 @@ export async function prefetchFirstQuestion(language: Language): Promise<void> {
   await promise;
 }
 
-function consumePrefetch(language: Language): QueuedQuestion | undefined {
+function consumePrefetch(language: Language): QueuedQuestion[] | undefined {
   const entry = prefetchCache.get(language);
   if (!entry) return undefined;
   if (Date.now() - entry.createdAt > PREFETCH_TTL_MS) {
@@ -249,7 +267,7 @@ function consumePrefetch(language: Language): QueuedQuestion | undefined {
     return undefined;
   }
   prefetchCache.delete(language);
-  return entry.question;
+  return entry.questions;
 }
 
 // Session store
@@ -266,7 +284,7 @@ export function getSession(id: string): GameSession | undefined {
   return sessions.get(id);
 }
 
-export async function getPrefetchedQuestion(language: Language): Promise<QueuedQuestion | undefined> {
+export async function getPrefetchedQuestions(language: Language): Promise<QueuedQuestion[] | undefined> {
   // If prefetch is in progress, wait for it to finish before consuming
   const inProgress = prefetchInProgress.get(language);
   if (inProgress) {

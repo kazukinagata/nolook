@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import {
   createSession,
   getSession,
-  prefetchFirstQuestion,
-  getPrefetchedQuestion,
+  prefetchFirstBatch,
+  getPrefetchedQuestions,
 } from "../services/sessionManager.js";
 import type { Language } from "../types.js";
 
@@ -12,7 +12,7 @@ const game = new Hono();
 game.get("/prefetch", async (c) => {
   const language = (c.req.query("language") as Language) || "en";
   // Fire-and-forget: start prefetching in background
-  prefetchFirstQuestion(language);
+  prefetchFirstBatch(language);
   return c.json({ status: "prefetching" });
 });
 
@@ -21,7 +21,7 @@ game.post("/start", async (c) => {
   const language = body.language || "en";
 
   const session = createSession(language);
-  const prefetched = await getPrefetchedQuestion(language);
+  const prefetched = await getPrefetchedQuestions(language);
   try {
     const firstQuestion = await session.initialize(prefetched);
     return c.json({ gameId: session.id, question: firstQuestion });

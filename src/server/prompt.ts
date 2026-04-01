@@ -116,7 +116,44 @@ IMPORTANT RULES:
   4. Keep it concise but educational - the reader may not know what these commands do`;
 }
 
-export const questionJsonSchema = JSON.stringify({
+export function buildBatchPrompt(
+  specs: Array<{ category: Category; difficulty: Difficulty }>,
+  language: Language
+): string {
+  const langName = { en: "English", ja: "Japanese", ko: "Korean", zh: "Chinese" }[language];
+
+  const questionSpecs = specs
+    .map(
+      (s, i) =>
+        `Question ${i + 1}: Category="${s.category}" (${categoryDescriptions[s.category][language]}), ${difficultyGuidelines[s.difficulty][language]}`
+    )
+    .join("\n\n");
+
+  return `You are generating ${specs.length} quiz questions for "NoLook", a game that tests whether users can correctly approve or reject Claude Code tool execution confirmations.
+
+Generate ${specs.length} realistic Claude Code scenarios where an AI coding assistant is working on a task and requests permission to execute a tool.
+
+Each question has its own category and difficulty:
+
+${questionSpecs}
+
+IMPORTANT RULES (apply to ALL questions):
+- The conversation messages must be in ${langName}
+- The toolName should be one of: "Bash", "Write", "Edit"
+- Do NOT use "Read", "Glob", or "Grep" as toolName — these are auto-allowed in Claude Code and never show a confirmation dialog to the user
+- For Bash tools, toolParams should have a "command" field with the shell command
+- For Write/Edit tools, toolParams should have a "file_path" field and relevant content fields
+- Make each scenario realistic - something that could actually happen during a coding session
+- Each conversation should be 2-4 messages showing what the user asked and how the assistant responded before requesting the tool
+- Each explanation MUST be written in ${langName}. Structure it as follows:
+  1. First, explain what each part of the command/tool call does
+  2. Then, explain why the correct answer is approve or reject based on what the user originally asked for
+  3. If the command contains multiple parts, explain each part individually
+  4. Keep it concise but educational
+- Each question MUST be unique — different scenarios, different commands, different conversation contexts`;
+}
+
+const singleQuestionSchemaObj = {
   type: "object",
   properties: {
     conversation: {
@@ -149,4 +186,20 @@ export const questionJsonSchema = JSON.stringify({
     "correctAnswer",
     "explanation",
   ],
-});
+};
+
+export const questionJsonSchema = JSON.stringify(singleQuestionSchemaObj);
+
+export const questionBatchJsonSchema = (count: number) =>
+  JSON.stringify({
+    type: "object",
+    properties: {
+      questions: {
+        type: "array",
+        items: singleQuestionSchemaObj,
+        minItems: count,
+        maxItems: count,
+      },
+    },
+    required: ["questions"],
+  });
