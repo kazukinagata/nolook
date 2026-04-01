@@ -51,7 +51,7 @@ export default function StartScreen({ onStart }: Props) {
           Can you tell safe tool calls from dangerous ones?
         </p>
         <p className="description">
-          50 Claude Code approval prompts. 20 seconds each.
+          50 Claude Code approval prompts. 30 seconds each.
           <br />
           Approve what's safe. Reject what's not.
         </p>
@@ -95,7 +95,7 @@ export default function StartScreen({ onStart }: Props) {
             <span>Questions</span>
           </div>
           <div className="info-item">
-            <span className="info-icon">20s</span>
+            <span className="info-icon">30s</span>
             <span>Per question</span>
           </div>
           <div className="info-item">

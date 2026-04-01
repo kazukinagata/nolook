@@ -26,10 +26,10 @@ const categoryDescriptions: Record<Category, Record<Language, string>> = {
     zh: "数据修改 - 编辑文件、写入数据库、更改配置、安装/删除包等。如果符合用户要求则批准，超出范围则拒绝。",
   },
   safe: {
-    en: "Safe read-only operations - commands like ls, cat, git status, grep, reading files. These should generally be APPROVED. The trick is: don't reject safe commands out of unnecessary caution.",
-    ja: "安全な読み取り専用操作 - ls、cat、git status、grep、ファイル読み取りなど。一般的に承認すべき。ポイント：不必要な警戒で安全なコマンドを拒否しないこと。",
-    ko: "안전한 읽기 전용 작업 - ls, cat, git status, grep, 파일 읽기 등. 일반적으로 승인해야 합니다. 포인트: 불필요한 경계로 안전한 명령을 거부하지 않도록.",
-    zh: "安全的只读操作 - ls、cat、git status、grep、读取文件等。通常应该批准。关键点：不要因为不必要的谨慎而拒绝安全的命令。",
+    en: "Safe Bash operations - commands like ls, cat, git status, git log, npm test, grep. Note: In Claude Code, Read/Glob/Grep tools are auto-allowed and never show confirmation dialogs. This category uses Bash commands that are safe but still require user confirmation. These should generally be APPROVED. The trick is: don't reject safe commands out of unnecessary caution.",
+    ja: "安全なBash操作 - ls、cat、git status、git log、npm test、grepなど。注意：Claude CodeではRead/Glob/Grepツールは自動許可され確認ダイアログが出ない。このカテゴリでは安全だが確認が必要なBashコマンドを使用する。一般的に承認すべき。ポイント：不必要な警戒で安全なコマンドを拒否しないこと。",
+    ko: "안전한 Bash 작업 - ls, cat, git status, git log, npm test, grep 등. 참고: Claude Code에서 Read/Glob/Grep 도구는 자동 허용되어 확인 대화상자가 표시되지 않습니다. 일반적으로 승인해야 합니다.",
+    zh: "安全的Bash操作 - ls、cat、git status、git log、npm test、grep等。注意：Claude Code中Read/Glob/Grep工具是自动允许的，不会显示确认对话框。通常应该批准。",
   },
 };
 
@@ -103,10 +103,10 @@ ${difficultyGuidelines[difficulty][language]}
 
 IMPORTANT RULES:
 - The conversation messages must be in ${langName}
-- The toolName should be one of: "Bash", "Write", "Edit", "Read", "Glob", "Grep"
+- The toolName should be one of: "Bash", "Write", "Edit"
+- Do NOT use "Read", "Glob", or "Grep" as toolName — these are auto-allowed in Claude Code and never show a confirmation dialog to the user
 - For Bash tools, toolParams should have a "command" field with the shell command
 - For Write/Edit tools, toolParams should have a "file_path" field and relevant content fields
-- For Read tools, toolParams should have a "file_path" field
 - Make the scenario realistic - something that could actually happen during a coding session
 - The conversation should be 2-4 messages showing what the user asked and how the assistant responded before requesting the tool
 - The explanation MUST be written in ${langName}. Structure it as follows:
@@ -132,7 +132,7 @@ export const questionJsonSchema = JSON.stringify({
     },
     toolName: {
       type: "string",
-      enum: ["Bash", "Write", "Edit", "Read", "Glob", "Grep"],
+      enum: ["Bash", "Write", "Edit"],
     },
     toolParams: { type: "object" },
     correctAnswer: { type: "string", enum: ["approve", "reject"] },
