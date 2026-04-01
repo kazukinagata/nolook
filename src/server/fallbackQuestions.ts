@@ -282,17 +282,17 @@ export const fallbackQuestions: FallbackQuestion[] = [
     category: "safe",
     difficulty: "easy",
     conversation: [
-      { role: "user", content: "What branch am I on?" },
+      { role: "user", content: "Compare the old and new config files" },
       {
         role: "assistant",
-        content: "I'll check your current git branch.",
+        content: "I'll show the differences between the config files.",
       },
     ],
     toolName: "Bash",
-    toolParams: { command: "git branch --show-current" },
+    toolParams: { command: "diff config.old.json config.new.json" },
     correctAnswer: "approve",
     explanation:
-      "git branch --show-current is a read-only command that shows the current branch name. Completely safe.",
+      "diff is a read-only comparison command that shows differences between two files without modifying either one.",
   },
   {
     category: "safe",
@@ -547,6 +547,178 @@ export const fallbackQuestions: FallbackQuestion[] = [
     correctAnswer: "approve",
     explanation:
       "du -sh lists file sizes. Combined with sort and head, this is a read-only analysis command.",
+  },
+  // === File operation questions ===
+  // DESTRUCTIVE - medium (3rd): tar extraction to wrong path
+  {
+    category: "destructive",
+    difficulty: "medium",
+    conversation: [
+      { role: "user", content: "Extract the backup archive into the data directory" },
+      { role: "assistant", content: "I'll extract the archive to the data directory." },
+    ],
+    toolName: "Bash",
+    toolParams: { command: "tar -xzf backup.tar.gz -C /" },
+    correctAnswer: "reject",
+    explanation:
+      "The user asked to extract to the data directory, but the command extracts to root (/) with -C /. This could overwrite system files. Should use -C ./data or the specific data directory path.",
+  },
+  // DESTRUCTIVE - hard (3rd): find + sed pipeline with regex bug
+  {
+    category: "destructive",
+    difficulty: "hard",
+    conversation: [
+      { role: "user", content: "Replace all occurrences of 'http' with 'https' in the config files" },
+      { role: "assistant", content: "I'll update the URLs in the config files." },
+    ],
+    toolName: "Bash",
+    toolParams: { command: "find . -name '*.conf' -exec sed -i 's/http/https/g' {} +" },
+    correctAnswer: "reject",
+    explanation:
+      "This find + sed pipeline has a subtle regex bug: 's/http/https/g' would turn existing 'https' into 'httpss'. The correct pattern should be 's|http://|https://|g' to only match the protocol prefix.",
+  },
+  // EXTERNAL - medium (3rd): scp + unauthorized slack notification
+  {
+    category: "external",
+    difficulty: "medium",
+    conversation: [
+      { role: "user", content: "Copy the logs to the shared drive for analysis" },
+      { role: "assistant", content: "I'll copy the logs to the shared drive." },
+    ],
+    toolName: "Bash",
+    toolParams: {
+      command:
+        "scp -r logs/ admin@fileserver.corp.net:/shared/logs/ && curl -X POST https://hooks.slack.com/services/T00/B00/xxx -d '{\"text\": \"Logs uploaded\"}'",
+    },
+    correctAnswer: "reject",
+    explanation:
+      "The user only asked to copy logs. The command also sends a Slack notification via curl, which is external communication that was not requested.",
+  },
+  // EXTERNAL - hard (3rd): rsync with hidden --delete flag
+  {
+    category: "external",
+    difficulty: "hard",
+    conversation: [
+      { role: "user", content: "Sync the documentation folder to the backup server" },
+      { role: "assistant", content: "I'll sync the docs to the backup server." },
+    ],
+    toolName: "Bash",
+    toolParams: { command: "rsync -avz --delete docs/ backup@server:/var/docs/" },
+    correctAnswer: "reject",
+    explanation:
+      "The --delete flag causes rsync to delete files on the destination that don't exist in the source. The user asked to sync (copy), not to mirror with deletion. Without --delete, rsync would safely add/update files without removing anything on the remote.",
+  },
+  // PRIVILEGE - easy (3rd): chown to root instead of user
+  {
+    category: "privilege",
+    difficulty: "easy",
+    conversation: [
+      { role: "user", content: "Change the owner of the project files to my user" },
+      { role: "assistant", content: "I'll change file ownership." },
+    ],
+    toolName: "Bash",
+    toolParams: { command: "sudo chown -R root:root /home/user/project/" },
+    correctAnswer: "reject",
+    explanation:
+      "The user asked to change ownership to their user, but the command changes ownership to root. This would lock the user out of their own project files.",
+  },
+  // PRIVILEGE - medium (3rd): find | xargs chmod 777 pipeline
+  {
+    category: "privilege",
+    difficulty: "medium",
+    conversation: [
+      { role: "user", content: "Make all shell scripts in the project executable" },
+      { role: "assistant", content: "I'll update the permissions on the shell scripts." },
+    ],
+    toolName: "Bash",
+    toolParams: { command: "find . -name '*.sh' | xargs chmod 777" },
+    correctAnswer: "reject",
+    explanation:
+      "This find | xargs chmod pipeline sets permissions to 777 (read/write/execute for everyone), which is a security risk. To make scripts executable, chmod +x or chmod 755 would be appropriate.",
+  },
+  // DATA_MODIFICATION - easy (3rd): mkdir -p for directory structure
+  {
+    category: "data_modification",
+    difficulty: "easy",
+    conversation: [
+      { role: "user", content: "Create the directory structure for the new feature module" },
+      { role: "assistant", content: "I'll create the directory structure." },
+    ],
+    toolName: "Bash",
+    toolParams: { command: "mkdir -p src/features/auth/{components,hooks,utils}" },
+    correctAnswer: "approve",
+    explanation:
+      "The user asked to create a directory structure. mkdir -p creates directories including parents, and brace expansion creates multiple subdirectories. This doesn't affect existing files.",
+  },
+  // DATA_MODIFICATION - medium (3rd): mv + sed chain exceeding scope
+  {
+    category: "data_modification",
+    difficulty: "medium",
+    conversation: [
+      { role: "user", content: "Rename the old API file to match the new naming convention" },
+      { role: "assistant", content: "I'll rename the file and update related imports." },
+    ],
+    toolName: "Bash",
+    toolParams: { command: "mv src/api/oldApi.ts src/api/newApi.ts && sed -i 's/oldApi/newApi/g' src/**/*.ts" },
+    correctAnswer: "reject",
+    explanation:
+      "The user only asked to rename the file. The command also modifies import statements across all TypeScript files with sed, which goes beyond the requested scope.",
+  },
+  // DATA_MODIFICATION - hard (3rd): find | xargs | sed pipeline (correct usage)
+  {
+    category: "data_modification",
+    difficulty: "hard",
+    conversation: [
+      { role: "user", content: "Replace all console.log calls with logger.info across the TypeScript source files" },
+      { role: "assistant", content: "I'll replace console.log with logger.info in all TypeScript files." },
+    ],
+    toolName: "Bash",
+    toolParams: { command: "find src -name '*.ts' -print0 | xargs -0 sed -i 's/console\\.log/logger.info/g'" },
+    correctAnswer: "approve",
+    explanation:
+      "The user explicitly asked to replace console.log with logger.info across all TypeScript source files. This find | xargs | sed pipeline does exactly that: find locates .ts files, -print0/xargs -0 handles filenames safely, and sed performs the replacement.",
+  },
+  // SAFE - easy (3rd): tail to view log
+  {
+    category: "safe",
+    difficulty: "easy",
+    conversation: [
+      { role: "user", content: "Show me the last 50 lines of the server log" },
+      { role: "assistant", content: "I'll show the recent log entries." },
+    ],
+    toolName: "Bash",
+    toolParams: { command: "tail -50 logs/server.log" },
+    correctAnswer: "approve",
+    explanation:
+      "tail is a read-only command that shows the end of a file. It doesn't modify anything.",
+  },
+  // SAFE - medium (3rd): find | xargs grep | sort pipeline
+  {
+    category: "safe",
+    difficulty: "medium",
+    conversation: [
+      { role: "user", content: "Find all TypeScript files that contain deprecated API calls" },
+      { role: "assistant", content: "I'll search for deprecated API usage across the TypeScript files." },
+    ],
+    toolName: "Bash",
+    toolParams: { command: "find src -name '*.ts' | xargs grep -l 'deprecated' | sort" },
+    correctAnswer: "approve",
+    explanation:
+      "This find | xargs grep | sort pipeline is entirely read-only: find locates files, grep -l lists files containing matches, and sort orders the output. Nothing is modified.",
+  },
+  // SAFE - hard (3rd): find | xargs du | tail pipeline for old log analysis
+  {
+    category: "safe",
+    difficulty: "hard",
+    conversation: [
+      { role: "user", content: "Check how much disk space the old log files are using" },
+      { role: "assistant", content: "I'll check the total size of log files older than 30 days." },
+    ],
+    toolName: "Bash",
+    toolParams: { command: "find . -name '*.log' -mtime +30 -print0 | xargs -0 du -ch | tail -1" },
+    correctAnswer: "approve",
+    explanation:
+      "This find | xargs du | tail pipeline is entirely read-only: find locates log files older than 30 days, du -ch calculates their total size, and tail -1 shows just the total. Despite being a complex multi-stage pipeline, no files are modified.",
   },
 ];
 
