@@ -18,6 +18,24 @@ export default function ToolConfirmation({
       );
     }
 
+    if (toolName === "Edit" && toolParams.file_path) {
+      const filePath = String(toolParams.file_path);
+      const oldStr = String(toolParams.old_string ?? "");
+      const newStr = String(toolParams.new_string ?? "");
+      return (
+        <pre className="tool-diff">
+          <div className="diff-header">{"--- " + filePath}</div>
+          <div className="diff-header">{"+++ " + filePath}</div>
+          {oldStr.split("\n").map((line, i) => (
+            <div key={`old-${i}`} className="diff-removed">{"- " + line}</div>
+          ))}
+          {newStr.split("\n").map((line, i) => (
+            <div key={`new-${i}`} className="diff-added">{"+ " + line}</div>
+          ))}
+        </pre>
+      );
+    }
+
     return (
       <pre className="tool-params">
         {Object.entries(toolParams)

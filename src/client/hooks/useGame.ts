@@ -24,6 +24,7 @@ interface GameState {
   score: number;
   results: GameResults | null;
   loading: boolean;
+  submitting: boolean;
 }
 
 export function useGame() {
@@ -37,6 +38,7 @@ export function useGame() {
     score: 0,
     results: null,
     loading: false,
+    submitting: false,
   });
 
   const startGame = useCallback(async (language: Language) => {
@@ -60,6 +62,7 @@ export function useGame() {
         score: 0,
         results: null,
         loading: false,
+        submitting: false,
       });
     } catch (err) {
       console.error("Failed to start game:", err);
@@ -69,7 +72,9 @@ export function useGame() {
 
   const submitAnswer = useCallback(
     async (answer: "approve" | "reject", timedOut = false) => {
-      if (!state.gameId || state.phase !== "playing") return;
+      if (!state.gameId || state.phase !== "playing" || state.submitting) return;
+
+      setState((s) => ({ ...s, submitting: true }));
 
       try {
         const res = await fetch(`/api/game/${state.gameId}/answer`, {
@@ -82,6 +87,7 @@ export function useGame() {
         setState((s) => ({
           ...s,
           phase: "feedback",
+          submitting: false,
           feedback: {
             correct: data.correct,
             correctAnswer: data.correctAnswer,
@@ -97,13 +103,18 @@ export function useGame() {
         }));
       } catch (err) {
         console.error("Failed to submit answer:", err);
+        setState((s) => ({ ...s, submitting: false }));
       }
     },
-    [state.gameId, state.phase]
+    [state.gameId, state.phase, state.submitting]
   );
 
   const nextQuestion = useCallback(async () => {
     if (state.nextQuestionCache) {
+      // Notify server that the question is now displayed, so the timer starts
+      if (state.gameId) {
+        fetch(`/api/game/${state.gameId}/serve`, { method: "POST" }).catch(() => {});
+      }
       setState((s) => ({
         ...s,
         phase: "playing",

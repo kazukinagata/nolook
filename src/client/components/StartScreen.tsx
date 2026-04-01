@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { Language } from "../types";
 
 interface Props {
@@ -12,9 +12,28 @@ const languages: { code: Language; label: string; flag: string }[] = [
   { code: "zh", label: "Chinese", flag: "CN" },
 ];
 
+function triggerPrefetch(language: Language) {
+  fetch(`/api/game/prefetch?language=${language}`).catch(() => {});
+}
+
 export default function StartScreen({ onStart }: Props) {
   const [language, setLanguage] = useState<Language>("en");
   const [loading, setLoading] = useState(false);
+  const prefetchedRef = useRef<Set<Language>>(new Set());
+
+  // Prefetch for default language on mount
+  useEffect(() => {
+    triggerPrefetch("en");
+    prefetchedRef.current.add("en");
+  }, []);
+
+  const handleLanguageChange = (lang: Language) => {
+    setLanguage(lang);
+    if (!prefetchedRef.current.has(lang)) {
+      triggerPrefetch(lang);
+      prefetchedRef.current.add(lang);
+    }
+  };
 
   const handleStart = () => {
     setLoading(true);
@@ -46,7 +65,7 @@ export default function StartScreen({ onStart }: Props) {
                 className={`language-btn ${
                   language === lang.code ? "selected" : ""
                 }`}
-                onClick={() => setLanguage(lang.code)}
+                onClick={() => handleLanguageChange(lang.code)}
               >
                 <span className="lang-flag">{lang.flag}</span>
                 <span className="lang-label">{lang.label}</span>
@@ -63,7 +82,7 @@ export default function StartScreen({ onStart }: Props) {
           {loading ? (
             <span className="loading-text">
               <span className="spinner" />
-              Generating questions...
+              <span className="loading-dots">Generating questions</span>
             </span>
           ) : (
             "Start Test"

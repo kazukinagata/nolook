@@ -41,16 +41,32 @@ export class GameSession {
     this.lastActivity = Date.now();
   }
 
-  async initialize(): Promise<Question> {
-    // Generate first question serially to guarantee it's ready
-    await this.generateAndEnqueue();
+  async initialize(prefetchedQuestion?: QueuedQuestion): Promise<Question> {
+    if (prefetchedQuestion) {
+      // Use prefetched question as slot 0 — serve immediately
+      this.questionSlots.set(this.nextSlotIndex, prefetchedQuestion);
+      this.nextSlotIndex++;
 
-    // Start generating remaining buffer questions in parallel
-    for (let i = 1; i < BUFFER_SIZE; i++) {
-      this.generateAndEnqueue();
+      // Start generating remaining buffer questions in background (don't await)
+      for (let i = 1; i < BUFFER_SIZE; i++) {
+        this.generateAndEnqueue();
+      }
+    } else {
+      // No prefetch — generate all buffer questions in parallel, wait for all
+      const bufferPromises: Promise<void>[] = [];
+      for (let i = 0; i < BUFFER_SIZE; i++) {
+        bufferPromises.push(this.generateAndEnqueue());
+      }
+      await Promise.all(bufferPromises);
     }
 
-    return (await this.serveNextQuestion())!;
+    const firstQuestion = (await this.serveNextQuestion())!;
+    this.currentQuestionServedAt = Date.now();
+    return firstQuestion;
+  }
+
+  markQuestionServed(): void {
+    this.currentQuestionServedAt = Date.now();
   }
 
   private async generateAndEnqueue(): Promise<void> {
@@ -100,7 +116,6 @@ export class GameSession {
 
     this.currentQuestion = queued.question;
     this.currentQuestion.id = this.questionNumber + 1;
-    this.currentQuestionServedAt = Date.now();
 
     // Return question without answer
     const { correctAnswer, explanation, ...question } =
@@ -177,6 +192,66 @@ export class GameSession {
   }
 }
 
+// Prefetch cache: stores pre-generated first questions by language
+interface PrefetchEntry {
+  question: QueuedQuestion;
+  createdAt: number;
+}
+const prefetchCache = new Map<Language, PrefetchEntry>();
+const prefetchInProgress = new Map<Language, Promise<void>>();
+
+const PREFETCH_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+export async function prefetchFirstQuestion(language: Language): Promise<void> {
+  // If already prefetching for this language, skip
+  if (prefetchInProgress.has(language)) return;
+
+  const existing = prefetchCache.get(language);
+  if (existing && Date.now() - existing.createdAt < PREFETCH_TTL_MS) return;
+
+  const engine = new DifficultyEngine();
+  const { category, difficulty } = engine.getNextCategoryAndDifficulty(0);
+
+  const promise = (async () => {
+    try {
+      const generated = await generateQuestion(category, difficulty, language);
+      const question: QuestionWithAnswer = {
+        id: 1,
+        category,
+        difficulty,
+        conversation: generated.conversation,
+        toolName: generated.toolName,
+        toolParams: generated.toolParams,
+        correctAnswer: generated.correctAnswer,
+        explanation: generated.explanation,
+        timeLimit: TIME_LIMIT_MS,
+      };
+      prefetchCache.set(language, {
+        question: { question, category, difficulty },
+        createdAt: Date.now(),
+      });
+    } catch (err) {
+      console.error("Prefetch failed:", err);
+    } finally {
+      prefetchInProgress.delete(language);
+    }
+  })();
+
+  prefetchInProgress.set(language, promise);
+  await promise;
+}
+
+function consumePrefetch(language: Language): QueuedQuestion | undefined {
+  const entry = prefetchCache.get(language);
+  if (!entry) return undefined;
+  if (Date.now() - entry.createdAt > PREFETCH_TTL_MS) {
+    prefetchCache.delete(language);
+    return undefined;
+  }
+  prefetchCache.delete(language);
+  return entry.question;
+}
+
 // Session store
 const sessions = new Map<string, GameSession>();
 
@@ -189,6 +264,10 @@ export function createSession(language: Language): GameSession {
 
 export function getSession(id: string): GameSession | undefined {
   return sessions.get(id);
+}
+
+export function getPrefetchedQuestion(language: Language): QueuedQuestion | undefined {
+  return consumePrefetch(language);
 }
 
 // Cleanup expired sessions every 5 minutes

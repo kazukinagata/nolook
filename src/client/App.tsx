@@ -19,6 +19,7 @@ export default function App() {
           onAnswer={game.submitAnswer}
           onNext={game.nextQuestion}
           score={game.score}
+          submitting={game.submitting}
         />
       );
     case "results":

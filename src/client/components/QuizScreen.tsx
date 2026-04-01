@@ -19,6 +19,7 @@ interface Props {
   onAnswer: (answer: "approve" | "reject", timedOut?: boolean) => void;
   onNext: () => void;
   score: number;
+  submitting: boolean;
 }
 
 export default function QuizScreen({
@@ -28,6 +29,7 @@ export default function QuizScreen({
   onAnswer,
   onNext,
   score,
+  submitting,
 }: Props) {
   const answeredRef = useRef(false);
 
@@ -96,8 +98,15 @@ export default function QuizScreen({
           toolName={question.toolName}
           toolParams={question.toolParams}
           onAnswer={handleAnswer}
-          disabled={!!feedback}
+          disabled={!!feedback || submitting}
         />
+
+        {submitting && !feedback && (
+          <div className="submitting-indicator">
+            <span className="spinner" />
+            Judging...
+          </div>
+        )}
 
         {!feedback && (
           <Timer

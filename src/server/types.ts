@@ -80,5 +80,5 @@ export const CATEGORY_LABELS: Record<Category, string> = {
 };
 
 export const TOTAL_QUESTIONS = 50;
-export const TIME_LIMIT_MS = 20_000;
+export const TIME_LIMIT_MS = 30_000;
 export const GRACE_PERIOD_MS = 2_000;
