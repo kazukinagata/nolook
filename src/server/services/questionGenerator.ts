@@ -8,7 +8,7 @@ import type {
 import { buildPrompt, questionJsonSchema } from "../prompt.js";
 import { getNextFallback } from "../fallbackQuestions.js";
 
-const GENERATION_TIMEOUT_MS = 15_000;
+const GENERATION_TIMEOUT_MS = 60_000;
 
 export async function generateQuestion(
   category: Category,
@@ -113,17 +113,19 @@ function parseClaudeOutput(raw: string): GeneratedQuestion {
     throw new Error(`claude returned error: ${msg}`);
   }
 
-  // If claude wraps in { result: "..." }, extract the inner content
-  if (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    "result" in parsed
-  ) {
-    const inner = (parsed as { result: string }).result;
-    if (typeof inner === "string") {
-      parsed = JSON.parse(inner);
-    } else {
-      parsed = inner;
+  // Extract question data from claude's response wrapper
+  if (typeof parsed === "object" && parsed !== null) {
+    const wrapper = parsed as Record<string, unknown>;
+    // --json-schema puts structured data in structured_output
+    if ("structured_output" in wrapper && wrapper.structured_output) {
+      parsed = wrapper.structured_output;
+    } else if ("result" in wrapper) {
+      const inner = wrapper.result;
+      if (typeof inner === "string") {
+        parsed = JSON.parse(inner);
+      } else {
+        parsed = inner;
+      }
     }
   }
 
