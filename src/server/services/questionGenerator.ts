@@ -8,7 +8,8 @@ import type {
 import { buildPrompt, buildBatchPrompt, questionJsonSchema, questionBatchJsonSchema } from "../prompt.js";
 import { getNextFallback } from "../fallbackQuestions.js";
 
-const GENERATION_TIMEOUT_MS = 20_000;
+const SINGLE_TIMEOUT_MS = 20_000;
+const BATCH_TIMEOUT_MS = 90_000;
 
 export async function generateQuestion(
   category: Category,
@@ -17,7 +18,7 @@ export async function generateQuestion(
 ): Promise<GeneratedQuestion> {
   try {
     const prompt = buildPrompt(category, difficulty, language);
-    const result = await callClaude(prompt, questionJsonSchema);
+    const result = await callClaude(prompt, questionJsonSchema, SINGLE_TIMEOUT_MS);
     return parseClaudeOutput(result);
   } catch (err) {
     console.error(
@@ -42,7 +43,7 @@ export async function generateQuestionBatch(
   try {
     const prompt = buildBatchPrompt(specs, language);
     const schema = questionBatchJsonSchema(specs.length);
-    const result = await callClaude(prompt, schema);
+    const result = await callClaude(prompt, schema, BATCH_TIMEOUT_MS);
     const parsed = parseBatchClaudeOutput(result, specs.length);
     return parsed;
   } catch (err) {
@@ -64,7 +65,7 @@ export async function generateQuestionBatch(
   }
 }
 
-function callClaude(prompt: string, schema: string): Promise<string> {
+function callClaude(prompt: string, schema: string, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const args = [
       "-p",
@@ -82,7 +83,7 @@ function callClaude(prompt: string, schema: string): Promise<string> {
     ];
 
     const proc = spawn("claude", args, {
-      timeout: GENERATION_TIMEOUT_MS,
+      timeout: timeoutMs,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -117,7 +118,7 @@ function callClaude(prompt: string, schema: string): Promise<string> {
     setTimeout(() => {
       proc.kill("SIGTERM");
       reject(new Error("claude -p timed out"));
-    }, GENERATION_TIMEOUT_MS);
+    }, timeoutMs);
   });
 }
 
