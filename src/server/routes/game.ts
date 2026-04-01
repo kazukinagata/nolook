@@ -21,7 +21,7 @@ game.post("/start", async (c) => {
   const language = body.language || "en";
 
   const session = createSession(language);
-  const prefetched = getPrefetchedQuestion(language);
+  const prefetched = await getPrefetchedQuestion(language);
   try {
     const firstQuestion = await session.initialize(prefetched);
     return c.json({ gameId: session.id, question: firstQuestion });

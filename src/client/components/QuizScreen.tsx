@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useRef } from "react";
+import ReactMarkdown from "react-markdown";
 import type { Question } from "../types";
 import ConversationView from "./ConversationView";
 import ToolConfirmation from "./ToolConfirmation";
@@ -141,7 +142,9 @@ export default function QuizScreen({
                   : "No (Reject)"}
               </span>
             </div>
-            <p className="feedback-explanation">{feedback.explanation}</p>
+            <div className="feedback-explanation">
+              <ReactMarkdown>{feedback.explanation}</ReactMarkdown>
+            </div>
             <button className="next-btn" onClick={onNext} autoFocus>
               {progress.answered < progress.total
                 ? "Next Question"

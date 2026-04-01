@@ -266,7 +266,12 @@ export function getSession(id: string): GameSession | undefined {
   return sessions.get(id);
 }
 
-export function getPrefetchedQuestion(language: Language): QueuedQuestion | undefined {
+export async function getPrefetchedQuestion(language: Language): Promise<QueuedQuestion | undefined> {
+  // If prefetch is in progress, wait for it to finish before consuming
+  const inProgress = prefetchInProgress.get(language);
+  if (inProgress) {
+    await inProgress;
+  }
   return consumePrefetch(language);
 }
 
