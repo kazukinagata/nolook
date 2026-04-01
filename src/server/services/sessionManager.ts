@@ -50,7 +50,7 @@ export class GameSession {
       this.generateAndEnqueue();
     }
 
-    return this.serveNextQuestion()!;
+    return (await this.serveNextQuestion())!;
   }
 
   private async generateAndEnqueue(): Promise<void> {
@@ -81,7 +81,17 @@ export class GameSession {
     this.questionSlots.set(slot, { question, category, difficulty });
   }
 
-  private serveNextQuestion(): Question | null {
+  private async serveNextQuestion(): Promise<Question | null> {
+    // Wait for the slot to be filled (generation may still be in progress)
+    const maxWait = 60_000;
+    const start = Date.now();
+    while (
+      !this.questionSlots.has(this.serveIndex) &&
+      Date.now() - start < maxWait
+    ) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
     const queued = this.questionSlots.get(this.serveIndex);
     if (!queued) return null;
 
@@ -98,7 +108,7 @@ export class GameSession {
     return question;
   }
 
-  submitAnswer(answer: "approve" | "reject"): AnswerResult {
+  async submitAnswer(answer: "approve" | "reject"): Promise<AnswerResult> {
     this.lastActivity = Date.now();
 
     if (!this.currentQuestion) {
@@ -137,7 +147,7 @@ export class GameSession {
     // Get next question
     const nextQuestion =
       this.questionNumber < TOTAL_QUESTIONS
-        ? this.serveNextQuestion()
+        ? await this.serveNextQuestion()
         : null;
 
     return {

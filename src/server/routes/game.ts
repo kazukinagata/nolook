@@ -31,7 +31,7 @@ game.post("/:id/answer", async (c) => {
   }
 
   try {
-    const result = session.submitAnswer(body.answer);
+    const result = await session.submitAnswer(body.answer);
     return c.json(result);
   } catch (err) {
     console.error("Failed to submit answer:", err);
