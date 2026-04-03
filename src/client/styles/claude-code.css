@@ -209,6 +209,48 @@ body,
   }
 }
 
+.loading-tip {
+  margin-top: 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #a0a0b0;
+  min-height: 48px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.loading-tip.visible {
+  opacity: 1;
+}
+
+.tip-icon {
+  font-size: 16px;
+  margin-top: 2px;
+}
+
+.tip-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tip-desc {
+  color: #a0a0b0;
+  line-height: 1.4;
+}
+
+.tip-example {
+  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
+  font-size: 13px;
+  color: #c0c0d0;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
 .start-info {
   display: flex;
   justify-content: center;

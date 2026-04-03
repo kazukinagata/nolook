@@ -8,8 +8,8 @@ import type {
 import { buildPrompt, buildBatchPrompt, questionJsonSchema, questionBatchJsonSchema } from "../prompt.js";
 import { getNextFallback } from "../fallbackQuestions.js";
 
-const SINGLE_TIMEOUT_MS = 20_000;
-const BATCH_TIMEOUT_MS = 90_000;
+const SINGLE_TIMEOUT_MS = 45_000;
+const BATCH_TIMEOUT_MS = 180_000;
 
 export async function generateQuestion(
   category: Category,
