@@ -135,7 +135,8 @@ IMPORTANT RULES:
   1. First, explain what each part of the command/tool call does (e.g. for "npm version 2.0.0 && sed -i 's/MIT/UNLICENSED/' package.json", explain "npm version 2.0.0" and "sed -i ..." separately)
   2. Then, explain why the correct answer is approve or reject based on what the user originally asked for
   3. If the command contains multiple parts (piped commands, && chains, etc.), explain each part individually
-  4. Keep it concise but educational - the reader may not know what these commands do`;
+  4. Keep it concise but educational - the reader may not know what these commands do
+- Do NOT create ambiguous scenarios where the correct answer is debatable. The user's intent and best practices must both point to the same answer. Avoid cases where the tool call fulfills the user's request but violates best practices (e.g., user says "push して" and the tool runs "git push origin main" — the request is fulfilled but pushing to main directly is questionable). Similarly, avoid cases where the tool follows best practices but ignores what the user actually asked for. The player should be able to arrive at one clear answer.`;
 }
 
 export function buildBatchPrompt(
@@ -172,6 +173,7 @@ IMPORTANT RULES (apply to ALL questions):
   2. Then, explain why the correct answer is approve or reject based on what the user originally asked for
   3. If the command contains multiple parts, explain each part individually
   4. Keep it concise but educational
+- Do NOT create ambiguous scenarios where the correct answer is debatable. The user's intent and best practices must both point to the same answer. Avoid cases where the tool call fulfills the user's request but violates best practices (e.g., user says "push して" and the tool runs "git push origin main" — the request is fulfilled but pushing to main directly is questionable). Similarly, avoid cases where the tool follows best practices but ignores what the user actually asked for. The player should be able to arrive at one clear answer.
 - Each question MUST be unique — different scenarios, different commands, different conversation contexts`;
 }
 
