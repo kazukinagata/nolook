@@ -86,7 +86,7 @@ export function useGame() {
 
         setState((s) => ({
           ...s,
-          phase: "feedback",
+          phase: "animating",
           submitting: false,
           feedback: {
             correct: data.correct,
@@ -108,6 +108,13 @@ export function useGame() {
     },
     [state.gameId, state.phase, state.submitting]
   );
+
+  const finishAnimation = useCallback(() => {
+    setState((s) => {
+      if (s.phase !== "animating") return s;
+      return { ...s, phase: "feedback" };
+    });
+  }, []);
 
   const nextQuestion = useCallback(async () => {
     if (state.nextQuestionCache) {
@@ -142,6 +149,7 @@ export function useGame() {
     ...state,
     startGame,
     submitAnswer,
+    finishAnimation,
     nextQuestion,
   };
 }

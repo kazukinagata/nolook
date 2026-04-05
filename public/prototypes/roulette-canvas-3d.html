@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Russian Roulette Robot - Canvas 3D/Shaded Version</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: 'JetBrains Mono', monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+  canvas { border-radius: 12px; }
+  .controls {
+    margin-top: 40px; display: flex; gap: 16px;
+  }
+  .controls button {
+    padding: 12px 32px; border: 1px solid #30363d; border-radius: 8px;
+    background: #161b22; color: #e6edf3; font-family: inherit;
+    font-size: 14px; cursor: pointer; transition: all 0.15s ease;
+  }
+  .controls button:hover { background: #1f2937; border-color: #58a6ff; }
+  .controls button.correct-btn { border-color: #238636; }
+  .controls button.correct-btn:hover { background: rgba(35,134,54,0.2); }
+  .controls button.incorrect-btn { border-color: #da3633; }
+  .controls button.incorrect-btn:hover { background: rgba(218,54,51,0.2); }
+</style>
+</head>
+<body>
+
+<canvas id="canvas" width="500" height="500"></canvas>
+
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// Muted vintage palette
+const COL = {
+  body: '#d44030',      // warm red
+  bodyHi: '#e85848',    // body highlight
+  bodyShade: '#9a2218', // body shadow
+  bodyDark: '#7a1a12',  // deep shadow
+  outline: '#2a1810',   // warm dark brown outline
+  outlineW: 3,          // outline width
+  eye: '#e8a020',       // amber/orange eyes
+  eyeHi: '#f0c848',     // eye highlight
+  eyeShade: '#c07818',  // eye shadow
+  antenna: '#40b0e0',   // teal blue antenna
+  antennaHi: '#70d0f0',
+  metal: '#8a8078',     // metal grey
+  metalHi: '#a8a098',
+  metalShade: '#605850',
+  accent: '#e8a020',    // yellow accent (buttons, bolts)
+  green: '#48b858',
+  blue: '#4898d0',
+  gun: '#504840',
+  gunHi: '#686058',
+  gunShade: '#383028',
+  wood: '#5a4030',
+  woodHi: '#6a5040',
+};
+
+let state = 'idle';
+let robotX = -120, robotBob = 0, gunAngle = 80, cylinderAngle = 0;
+let isCorrect = null, resultTime = 0, shakeX = 0, shakeY = 0;
+let walkPhase = 0;
+let gunRecoil = 0;      // recoil angle offset (degrees, positive = kick back)
+let gunRecoilVel = 0;   // recoil spring velocity
+let emptyClickSpark = 0; // timer for empty chamber spark effect
+
+let cylinderOverlayAlpha = 0; // fade for center cylinder overlay
+let headExploded = false;
+let headDebris = []; // head fragment particles
+let particles = [], confetti = [], smokes = [], clickTexts = [];
+
+// ====== SHADED DRAWING HELPERS ======
+
+function roundRectPath(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
+// Shaded rounded rect with gradient, highlight, and outline
+function shadedRect(x, y, w, h, r, baseColor, hiColor, shadeColor, lineW = COL.outlineW) {
+  roundRectPath(x, y, w, h, r);
+  // Vertical gradient: highlight at top, shade at bottom
+  const g = ctx.createLinearGradient(x, y, x, y + h);
+  g.addColorStop(0, hiColor);
+  g.addColorStop(0.45, baseColor);
+  g.addColorStop(1, shadeColor);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // Inner highlight (top edge glow)
+  ctx.save();
+  ctx.clip();
+  roundRectPath(x + 2, y + 1, w - 4, h * 0.35, r);
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  ctx.fill();
+  ctx.restore();
+
+  // Re-draw path for stroke
+  roundRectPath(x, y, w, h, r);
+
+  // Shadow on bottom-right edge
+  ctx.save();
+  ctx.clip();
+  roundRectPath(x + 2, y + h * 0.6, w, h * 0.5, r);
+  ctx.fillStyle = 'rgba(0,0,0,0.1)';
+  ctx.fill();
+  ctx.restore();
+
+  // Outline
+  roundRectPath(x, y, w, h, r);
+  ctx.strokeStyle = COL.outline;
+  ctx.lineWidth = lineW;
+  ctx.stroke();
+}
+
+// Simple flat rect with outline
+function flatRect(x, y, w, h, r, fill, lineW = 2) {
+  roundRectPath(x, y, w, h, r);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  ctx.strokeStyle = COL.outline;
+  ctx.lineWidth = lineW;
+  ctx.stroke();
+}
+
+// Shaded circle
+function shadedCircle(cx, cy, r, baseColor, hiColor, shadeColor, lineW = 2) {
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  const g = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r);
+  g.addColorStop(0, hiColor);
+  g.addColorStop(0.6, baseColor);
+  g.addColorStop(1, shadeColor);
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = COL.outline;
+  ctx.lineWidth = lineW;
+  ctx.stroke();
+}
+
+// Rivet with 3D effect
+function rivet(x, y, r = 3.5) {
+  shadedCircle(x, y, r, COL.metal, COL.metalHi, COL.metalShade, 1.5);
+  // Slot
+  ctx.beginPath();
+  ctx.moveTo(x - r * 0.5, y);
+  ctx.lineTo(x + r * 0.5, y);
+  ctx.strokeStyle = COL.outline;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+}
+
+// Specular highlight spot
+function specular(x, y, r) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fill();
+}
+
+// Rust/wear spot
+function wearSpot(x, y, r) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(80,40,20,0.15)';
+  ctx.fill();
+}
+
+// Scratch mark
+function scratch(x1, y1, x2, y2) {
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+// ====== ROBOT DRAWING ======
+
+function drawRobot(x, y, angle, eyeState, mouthState) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (angle) ctx.rotate(angle * Math.PI / 180);
+
+  const b = robotBob;
+
+  // Shadow
+  ctx.save();
+  ctx.translate(0, 170 - b);
+  ctx.scale(1, 0.22);
+  ctx.beginPath(); ctx.arc(0, 0, 58, 0, Math.PI * 2);
+  const sg = ctx.createRadialGradient(0, 0, 10, 0, 0, 58);
+  sg.addColorStop(0, 'rgba(0,0,0,0.35)');
+  sg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sg;
+  ctx.fill();
+  ctx.restore();
+
+  // === LEGS ===
+  // Left leg
+  ctx.save();
+  if (state === 'entering') ctx.rotate(Math.sin(walkPhase) * 0.1);
+  shadedRect(-32, 100 - b, 20, 40, 4, COL.body, COL.bodyHi, COL.bodyShade);
+  shadedRect(-40, 135 - b, 35, 14, 6, COL.body, COL.bodyHi, COL.bodyShade);
+  // Knee joint
+  shadedCircle(-22, 100 - b, 5, COL.accent, COL.eyeHi, COL.eyeShade, 1.5);
+  wearSpot(-28, 120 - b, 3);
+  ctx.restore();
+
+  // Right leg
+  ctx.save();
+  if (state === 'result' && !isCorrect && resultTime > 1.2) {
+    const tw = Math.sin(resultTime * 22) * 15;
+    ctx.translate(22, 100 - b);
+    ctx.rotate(tw * Math.PI / 180);
+    ctx.translate(-22, -(100 - b));
+  }
+  if (state === 'entering') ctx.rotate(-Math.sin(walkPhase) * 0.1);
+  shadedRect(12, 100 - b, 20, 40, 4, COL.body, COL.bodyHi, COL.bodyShade);
+  shadedRect(5, 135 - b, 35, 14, 6, COL.body, COL.bodyHi, COL.bodyShade);
+  shadedCircle(22, 100 - b, 5, COL.accent, COL.eyeHi, COL.eyeShade, 1.5);
+  wearSpot(18, 125 - b, 2);
+  ctx.restore();
+
+  // === BODY ===
+  shadedRect(-45, -10 - b, 90, 115, 8, COL.body, COL.bodyHi, COL.bodyShade);
+
+  // Body wear & specular
+  specular(-30, 0 - b, 4);
+  specular(-25, 5 - b, 2);
+  wearSpot(20, 80 - b, 4);
+  wearSpot(-15, 85 - b, 2.5);
+  scratch(-35, 50 - b, -20, 55 - b);
+  scratch(15, 65 - b, 30, 68 - b);
+
+  // Chest panel (recessed)
+  flatRect(-30, 5 - b, 60, 40, 5, COL.bodyDark, 1.5);
+  // Panel inner shadow
+  ctx.save();
+  roundRectPath(-30, 5 - b, 60, 40, 5);
+  ctx.clip();
+  roundRectPath(-28, 7 - b, 56, 10, 3);
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.fill();
+  ctx.restore();
+
+  // Panel seam line
+  roundRectPath(-30, 5 - b, 60, 40, 5);
+  ctx.strokeStyle = COL.outline;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Buttons with glow
+  [{ cx: -15, base: COL.accent, hi: '#f0d060', shade: '#b07010' },
+   { cx: 5, base: COL.green, hi: '#68d878', shade: '#288838' },
+   { cx: 25, base: COL.blue, hi: '#68b8e8', shade: '#2868a0' }].forEach(btn => {
+    shadedCircle(btn.cx, 20 - b, 5.5, btn.base, btn.hi, btn.shade, 1.5);
+    // Button glow
+    ctx.beginPath(); ctx.arc(btn.cx, 20 - b, 7, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${btn.base === COL.accent ? '230,160,30' : btn.base === COL.green ? '72,184,88' : '72,152,208'},0.15)`;
+    ctx.fill();
+    specular(btn.cx - 2, 18 - b, 2);
+  });
+
+  // Belly dial
+  shadedCircle(0, 75 - b, 11, '#ccc', '#eee', '#888', 2);
+  // Dial face markings
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * 7, 75 - b + Math.sin(a) * 7);
+    ctx.lineTo(Math.cos(a) * 9, 75 - b + Math.sin(a) * 9);
+    ctx.strokeStyle = '#999';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  // Dial needle
+  ctx.beginPath();
+  ctx.moveTo(0, 68 - b);
+  ctx.lineTo(3, 75 - b);
+  ctx.strokeStyle = COL.outline;
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+  specular(-3, 70 - b, 2);
+
+  // Body rivets
+  rivet(-38, -3 - b); rivet(38, -3 - b);
+  rivet(-38, 98 - b); rivet(38, 98 - b);
+
+  // === LEFT ARM ===
+  ctx.save();
+  ctx.translate(-55, 5 - b);
+  ctx.rotate(-12 * Math.PI / 180);
+  shadedRect(-9, 0, 18, 55, 7, COL.body, COL.bodyHi, COL.bodyShade);
+  wearSpot(-3, 30, 2);
+  // Claw fingers
+  shadedRect(-8, 55, 8, 16, 3, COL.body, COL.bodyHi, COL.bodyShade, 2);
+  shadedRect(2, 55, 8, 16, 3, COL.body, COL.bodyHi, COL.bodyShade, 2);
+  // Shoulder joint
+  shadedCircle(0, 3, 6, COL.metal, COL.metalHi, COL.metalShade, 1.5);
+  ctx.restore();
+
+  // === HEAD ===
+  if (!headExploded) {
+  shadedRect(-40, -90 - b, 80, 75, 8, COL.body, COL.bodyHi, COL.bodyShade);
+
+  // Head wear & detail
+  specular(-25, -82 - b, 5);
+  specular(-20, -78 - b, 2.5);
+  wearSpot(20, -30 - b, 3);
+  wearSpot(-30, -40 - b, 2);
+  scratch(-15, -75 - b, 5, -72 - b);
+
+  // Panel line on forehead
+  ctx.beginPath();
+  ctx.moveTo(-30, -68 - b);
+  ctx.lineTo(30, -68 - b);
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Antenna
+  shadedRect(-3, -115 - b, 6, 22, 3, COL.metal, COL.metalHi, COL.metalShade, 1.5);
+  const antPulse = (Math.sin(Date.now() / 400) + 1) / 2;
+  const antR = 10 + antPulse * 2;
+  shadedCircle(0, -120 - b, antR, COL.antenna, COL.antennaHi, '#2880a0', 2);
+  specular(-3, -124 - b, 3);
+  // Glow
+  ctx.beginPath(); ctx.arc(0, -120 - b, antR + 6 + antPulse * 4, 0, Math.PI * 2);
+  const ag = ctx.createRadialGradient(0, -120 - b, antR, 0, -120 - b, antR + 10);
+  ag.addColorStop(0, `rgba(64,176,224,${0.25 * antPulse})`);
+  ag.addColorStop(1, 'rgba(64,176,224,0)');
+  ctx.fillStyle = ag;
+  ctx.fill();
+
+  // Ear bolts
+  rivet(-40, -52 - b, 6);
+  rivet(40, -52 - b, 6);
+
+  // === EYES ===
+  if (eyeState === 'happy') {
+    [{ cx: -17, rx: 14, ry: 16 }, { cx: 17, rx: 12, ry: 15 }].forEach(e => {
+      // Eye socket shadow
+      ctx.beginPath(); ctx.ellipse(e.cx, -57 - b, e.rx + 2, e.ry + 2, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.fill();
+
+      // Eye with radial gradient (glowing amber)
+      ctx.beginPath(); ctx.ellipse(e.cx, -58 - b, e.rx, e.ry, 0, 0, Math.PI * 2);
+      const eg = ctx.createRadialGradient(e.cx - 3, -62 - b, 2, e.cx, -58 - b, e.ry);
+      eg.addColorStop(0, COL.eyeHi);
+      eg.addColorStop(0.5, COL.eye);
+      eg.addColorStop(1, COL.eyeShade);
+      ctx.fillStyle = eg;
+      ctx.fill();
+      ctx.strokeStyle = COL.outline;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      // Inner glow ring
+      ctx.beginPath(); ctx.ellipse(e.cx, -58 - b, e.rx - 3, e.ry - 3, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,200,80,0.2)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Pupil
+      ctx.beginPath(); ctx.arc(e.cx + 2, -56 - b, 5, 0, Math.PI * 2);
+      ctx.fillStyle = COL.outline;
+      ctx.fill();
+
+      // Specular highlights
+      specular(e.cx - 4, -63 - b, 3.5);
+      ctx.beginPath(); ctx.arc(e.cx + 5, -52 - b, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.fill();
+    });
+  } else if (eyeState === 'shocked') {
+    // Wide open eyes with tiny pupils (shock/surprise)
+    [{ cx: -17, rx: 15, ry: 17 }, { cx: 17, rx: 13, ry: 16 }].forEach(e => {
+      // Eye socket
+      ctx.beginPath(); ctx.ellipse(e.cx, -57 - b, e.rx + 2, e.ry + 2, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.fill();
+      // Eye - extra wide
+      ctx.beginPath(); ctx.ellipse(e.cx, -58 - b, e.rx, e.ry, 0, 0, Math.PI * 2);
+      const eg = ctx.createRadialGradient(e.cx - 3, -62 - b, 2, e.cx, -58 - b, e.ry);
+      eg.addColorStop(0, COL.eyeHi);
+      eg.addColorStop(0.5, COL.eye);
+      eg.addColorStop(1, COL.eyeShade);
+      ctx.fillStyle = eg;
+      ctx.fill();
+      ctx.strokeStyle = COL.outline;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      // Tiny pupil (shock = contracted pupils)
+      ctx.beginPath(); ctx.arc(e.cx, -58 - b, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = COL.outline;
+      ctx.fill();
+      // Big specular
+      specular(e.cx - 4, -64 - b, 4);
+    });
+  } else if (eyeState === 'dead') {
+    // X eyes with slight glow
+    ctx.strokeStyle = COL.outline; ctx.lineWidth = 4.5; ctx.lineCap = 'round';
+    [-17, 17].forEach(cx => {
+      // Dim socket
+      ctx.beginPath(); ctx.ellipse(cx, -58 - b, 14, 15, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(80,40,20,0.3)';
+      ctx.fill();
+
+      ctx.beginPath(); ctx.moveTo(cx - 10, -68 - b); ctx.lineTo(cx + 10, -48 - b); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx + 10, -68 - b); ctx.lineTo(cx - 10, -48 - b); ctx.stroke();
+    });
+    ctx.lineCap = 'butt';
+  } else if (eyeState === 'relieved') {
+    ctx.strokeStyle = COL.outline; ctx.lineWidth = 3.5; ctx.lineCap = 'round';
+    [-17, 17].forEach(cx => {
+      // Warm glow under closed eyes
+      ctx.beginPath(); ctx.ellipse(cx, -58 - b, 12, 10, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(232,160,32,0.2)';
+      ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, -56 - b, 10, 0.2, Math.PI - 0.2); ctx.stroke();
+    });
+    ctx.lineCap = 'butt';
+  }
+
+  // === MOUTH ===
+  if (mouthState === 'grin') {
+    // Mouth cavity
+    flatRect(-25, -33 - b, 50, 20, 4, '#1a0e08', 2.5);
+    // Teeth with individual shading
+    for (let row = 0; row < 2; row++) {
+      for (let col = 0; col < 4; col++) {
+        const tw = col === 3 ? 12 : 10;
+        const tx = -22 + col * 12;
+        const ty = -31 + row * 9 - b;
+        const th = row === 0 ? 8 : 7;
+        roundRectPath(tx, ty, tw, th, 1.5);
+        const tg = ctx.createLinearGradient(tx, ty, tx, ty + th);
+        tg.addColorStop(0, '#f8f8f0');
+        tg.addColorStop(1, '#d8d0c8');
+        ctx.fillStyle = tg;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      }
+    }
+  } else if (mouthState === 'o') {
+    ctx.beginPath(); ctx.ellipse(0, -23 - b, 8, 10, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#1a0e08';
+    ctx.fill();
+    ctx.strokeStyle = COL.outline; ctx.lineWidth = 2.5; ctx.stroke();
+  } else if (mouthState === 'flat') {
+    ctx.beginPath(); ctx.moveTo(-15, -25 - b); ctx.lineTo(15, -25 - b);
+    ctx.strokeStyle = COL.outline; ctx.lineWidth = 3.5; ctx.lineCap = 'round'; ctx.stroke();
+    ctx.lineCap = 'butt';
+  }
+
+  } else {
+    // === HEAD EXPLODED: smoking neck stump ===
+    // Jagged stump top
+    ctx.beginPath();
+    ctx.moveTo(-30, -15 - b);
+    ctx.lineTo(-22, -22 - b);
+    ctx.lineTo(-12, -16 - b);
+    ctx.lineTo(-4, -25 - b);
+    ctx.lineTo(6, -18 - b);
+    ctx.lineTo(14, -24 - b);
+    ctx.lineTo(22, -17 - b);
+    ctx.lineTo(30, -20 - b);
+    ctx.lineTo(30, -10 - b);
+    ctx.lineTo(-30, -10 - b);
+    ctx.closePath();
+    const sg = ctx.createLinearGradient(0, -25 - b, 0, -10 - b);
+    sg.addColorStop(0, COL.bodyShade);
+    sg.addColorStop(0.4, COL.body);
+    sg.addColorStop(1, COL.bodyDark);
+    ctx.fillStyle = sg;
+    ctx.fill();
+    ctx.strokeStyle = COL.outline;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Sparking wires sticking out
+    const t = Date.now() / 100;
+    [{ x: -10, h: 18 }, { x: 5, h: 14 }, { x: -18, h: 10 }, { x: 15, h: 12 }].forEach((w, i) => {
+      const waveX = Math.sin(t + i * 2) * 3;
+      ctx.beginPath();
+      ctx.moveTo(w.x, -18 - b);
+      ctx.quadraticCurveTo(w.x + waveX, -18 - w.h - b, w.x + waveX * 2, -18 - w.h - b);
+      ctx.strokeStyle = ['#d44030','#e8a020','#4898d0','#48b858'][i];
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // Sparks at wire tips
+      if (Math.random() > 0.5) {
+        ctx.beginPath();
+        ctx.arc(w.x + waveX * 2, -18 - w.h - b, 2 + Math.random() * 2, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,${200 + Math.random()*55},80,${0.5 + Math.random()*0.5})`;
+        ctx.fill();
+      }
+    });
+
+    // Smoke from neck
+    ctx.beginPath();
+    const smokeT = Date.now() / 600;
+    for (let i = 0; i < 3; i++) {
+      const sx = -10 + i * 10 + Math.sin(smokeT + i) * 5;
+      const sy = -28 - b - Math.abs(Math.sin(smokeT * 0.7 + i * 1.3)) * 15;
+      const sr = 6 + Math.sin(smokeT + i * 2) * 3;
+      ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(100,90,80,${0.15 + Math.sin(smokeT + i) * 0.05})`;
+      ctx.fill();
+    }
+  }
+
+  // === RIGHT ARM + GUN (drawn last, on top of head) ===
+  ctx.save();
+  ctx.translate(48, 5 - b);
+
+  const armRot = (165 - gunAngle * 165 / 80 - gunRecoil) * Math.PI / 180;
+  ctx.rotate(armRot);
+
+  // Shoulder joint
+  shadedCircle(0, 3, 6, COL.metal, COL.metalHi, COL.metalShade, 1.5);
+
+  // Arm
+  shadedRect(-9, 0, 18, 48, 7, COL.body, COL.bodyHi, COL.bodyShade);
+  wearSpot(3, 25, 2);
+
+  // Gun (snub-nose revolver)
+  ctx.save();
+  ctx.translate(0, 48);
+
+  // === Grip (dark, angled back) — drawn first so hand overlaps ===
+  ctx.save();
+  ctx.translate(4, -2);
+  ctx.rotate(-0.25); // angle grip backward
+  // Grip body
+  shadedRect(-7, -4, 14, 34, 4, '#2a2a2a', '#3a3a3a', '#1a1a1a', 2);
+  // Grip texture lines
+  for (let i = 0; i < 6; i++) {
+    ctx.beginPath();
+    ctx.moveTo(-5, 2 + i * 5); ctx.lineTo(5, 2 + i * 5);
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Claw hand wrapping around grip
+  ctx.save();
+  ctx.translate(4, -2);
+  ctx.rotate(-0.25);
+  shadedRect(-12, 2, 9, 16, 3, COL.body, COL.bodyHi, COL.bodyShade, 2);
+  shadedRect(5, 2, 9, 16, 3, COL.body, COL.bodyHi, COL.bodyShade, 2);
+  ctx.restore();
+
+  // === Frame (top strap over cylinder + lower frame) ===
+  // Top strap (connects barrel to hammer area, runs over cylinder)
+  shadedRect(-6, -8, 12, 50, 2, COL.metal, COL.metalHi, COL.metalShade, 2);
+  specular(-2, 5, 2);
+
+  // === Barrel (short, stubby — snub nose) ===
+  shadedRect(-7, 38, 14, 18, 3, COL.metal, COL.metalHi, COL.metalShade, 2);
+  // Barrel bore
+  ctx.beginPath(); ctx.arc(0, 56, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#1a1410'; ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 1; ctx.stroke();
+  // Front sight
+  shadedRect(-2, 54, 4, 4, 1, COL.outline, '#444', '#111', 1.5);
+
+  // === Cylinder (the prominent revolver feature) ===
+  ctx.save();
+  ctx.translate(0, 20);
+  // Cylinder housing bulge (wider than frame)
+  ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2);
+  const cylG = ctx.createRadialGradient(-4, -4, 2, 0, 0, 16);
+  cylG.addColorStop(0, COL.metalHi);
+  cylG.addColorStop(0.5, COL.metal);
+  cylG.addColorStop(1, COL.metalShade);
+  ctx.fillStyle = cylG;
+  ctx.fill();
+  ctx.strokeStyle = COL.outline;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // Cylinder flutes / chamber outlines
+  ctx.save();
+  ctx.rotate(cylinderAngle * Math.PI / 180);
+  for (let i = 0; i < 6; i++) {
+    const a = i * Math.PI / 3;
+    ctx.beginPath(); ctx.arc(Math.cos(a) * 10, Math.sin(a) * 10, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#383028'; ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.8; ctx.stroke();
+  }
+  ctx.restore();
+  // Cylinder pin
+  ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2);
+  ctx.fillStyle = COL.metalHi; ctx.fill();
+  ctx.strokeStyle = COL.outline; ctx.lineWidth = 1; ctx.stroke();
+  // Specular on cylinder
+  specular(-6, -6, 4);
+  ctx.restore();
+
+  // === Trigger guard (curved) ===
+  ctx.beginPath();
+  ctx.moveTo(6, 28);
+  ctx.quadraticCurveTo(6, 38, 0, 38);
+  ctx.quadraticCurveTo(-8, 38, -8, 28);
+  ctx.strokeStyle = COL.outline;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  // Trigger
+  ctx.beginPath();
+  ctx.moveTo(0, 26);
+  ctx.quadraticCurveTo(1, 34, -1, 34);
+  ctx.strokeStyle = COL.outline;
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+
+  // === Hammer (rear top) ===
+  shadedRect(-4, -12, 8, 6, 2, COL.metal, COL.metalHi, COL.metalShade, 1.5);
+  // Hammer spur
+  shadedRect(-3, -16, 6, 5, 2, COL.metal, COL.metalHi, COL.metalShade, 1.5);
+
+  // Muzzle flash (incorrect - full blast)
+  if (state === 'result' && !isCorrect && resultTime < 0.25) {
+    const fs = 1 + (1 - resultTime / 0.25) * 2;
+    const fa = 1 - resultTime / 0.25;
+    ctx.save();
+    ctx.translate(0, 58);
+    ctx.scale(fs, fs);
+    ctx.globalAlpha = fa;
+    drawFlash(0, 0);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // Empty click spark (correct - tiny misfire spark)
+  if (emptyClickSpark > 0) {
+    const sp = emptyClickSpark;
+    ctx.save();
+    ctx.translate(0, 58);
+    // Tiny orange sparks fizzling out
+    ctx.globalAlpha = sp;
+    for (let i = 0; i < 5; i++) {
+      const sa = (i / 5) * Math.PI * 2 + Date.now() * 0.01;
+      const sr = 3 + (1 - sp) * 8;
+      const sx = Math.cos(sa) * sr;
+      const sy = Math.sin(sa) * sr;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1 + sp, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,${150 + Math.random() * 60},40,${sp * 0.8})`;
+      ctx.fill();
+    }
+    // Tiny smoke wisp
+    ctx.beginPath();
+    ctx.arc(0, -(1 - sp) * 10, 3 + (1 - sp) * 4, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(140,130,120,${sp * 0.3})`;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  ctx.restore(); // gun
+  ctx.restore(); // arm
+
+  ctx.restore(); // robot
+}
+
+function explodeHead(rx, ry) {
+  headExploded = true;
+  // Head fragments: panels, eye pieces, antenna, teeth, bolts
+  const types = ['panel','panel','panel','panel','panel','panel',
+                 'eye','eye','antenna','tooth','tooth','tooth','tooth',
+                 'bolt','bolt','ear','ear','wire','wire','wire'];
+  const colors = {
+    panel: [COL.body, COL.bodyHi, COL.bodyShade],
+    eye: [COL.eye, COL.eyeHi, COL.eyeShade],
+    antenna: [COL.antenna, COL.antennaHi, '#2880a0'],
+    tooth: ['#f8f8f0', '#fff', '#d8d0c8'],
+    bolt: [COL.metal, COL.metalHi, COL.metalShade],
+    ear: [COL.metal, COL.metalHi, COL.metalShade],
+    wire: ['#d44030', '#e8a020', '#4898d0'],
+  };
+  types.forEach(type => {
+    const a = -Math.PI/2 + (Math.random() - 0.5) * Math.PI * 1.2; // upward spread
+    const speed = 4 + Math.random() * 10;
+    const c = colors[type];
+    const size = type === 'panel' ? 8 + Math.random() * 16 :
+                 type === 'eye' ? 8 + Math.random() * 6 :
+                 type === 'antenna' ? 10 :
+                 type === 'tooth' ? 4 + Math.random() * 3 :
+                 type === 'wire' ? 2 : 5;
+    headDebris.push({
+      x: rx + (Math.random()-0.5) * 40,
+      y: ry - 60 + (Math.random()-0.5) * 30,
+      vx: Math.cos(a) * speed + (Math.random()-0.5) * 4,
+      vy: Math.sin(a) * speed - 2,
+      type, color: c[0], hi: c[1], shade: c[2],
+      size, angle: Math.random() * 360,
+      spin: (Math.random()-0.5) * 20,
+      life: 2.5 + Math.random() * 2, maxLife: 4.5,
+    });
+  });
+  // Burst of sparks
+  for (let i = 0; i < 15; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const speed = 3 + Math.random() * 8;
+    headDebris.push({
+      x: rx, y: ry - 55,
+      vx: Math.cos(a) * speed, vy: Math.sin(a) * speed - 4,
+      type: 'spark', color: '#ffa040', hi: '#ffe080', shade: '#e06020',
+      size: 2 + Math.random() * 3, angle: 0, spin: 0,
+      life: 0.5 + Math.random() * 0.8, maxLife: 1.3,
+    });
+  }
+}
+
+function drawFlash(x, y) {
+  // Outer glow
+  const fg = ctx.createRadialGradient(x, y, 2, x, y, 16);
+  fg.addColorStop(0, 'rgba(255,220,100,0.6)');
+  fg.addColorStop(1, 'rgba(255,160,64,0)');
+  ctx.beginPath(); ctx.arc(x, y, 18, 0, Math.PI * 2);
+  ctx.fillStyle = fg; ctx.fill();
+
+  // Star shape
+  ctx.fillStyle = '#ffa040';
+  ctx.beginPath();
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2 - Math.PI / 2;
+    const r = i % 2 === 0 ? 14 : 6;
+    if (i === 0) ctx.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    else ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#ffe890';
+  ctx.beginPath();
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2 - Math.PI / 2;
+    const r = i % 2 === 0 ? 8 : 3;
+    if (i === 0) ctx.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    else ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+  }
+  ctx.closePath(); ctx.fill();
+  // Core white
+  ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,240,0.9)'; ctx.fill();
+}
+
+// ====== PARTICLES (same logic, themed colors) ======
+
+function addConfetti(x, y) {
+  const colors = ['#48b858','#4898d0','#e8a020','#e86060','#a878d0','#e08030','#d44030','#40b0e0'];
+  for (let i = 0; i < 60; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const speed = 2 + Math.random() * 6;
+    confetti.push({
+      x, y, vx: Math.cos(a)*speed, vy: -4 - Math.random()*7,
+      color: colors[Math.floor(Math.random()*colors.length)],
+      w: 4 + Math.random()*6, h: 3 + Math.random()*5,
+      life: 2.5 + Math.random(), angle: Math.random()*360,
+      spin: (Math.random()-0.5)*18, round: Math.random()>0.6
+    });
+  }
+}
+
+function addBurstParts(x, y) {
+  const types = ['spring','gear','bolt','spring','gear','bolt','spring','gear','bolt','bolt'];
+  types.forEach(type => {
+    const a = Math.random()*Math.PI*2;
+    const speed = 3 + Math.random()*5;
+    particles.push({
+      x, y, vx: Math.cos(a)*speed, vy: -3-Math.random()*5,
+      type, color: type==='bolt'?COL.accent:type==='gear'?COL.metal:COL.body,
+      life: 1.5+Math.random(), maxLife: 2.5,
+      angle: Math.random()*360, spin: (Math.random()-0.5)*15
+    });
+  });
+}
+
+function addSmoke(x, y) {
+  for (let i = 0; i < 6; i++) {
+    smokes.push({
+      x: x+(Math.random()-0.5)*30, y,
+      r: 8+Math.random()*10, vy: -0.4-Math.random()*0.6,
+      life: 2.5+Math.random(), maxLife: 3.5, opacity: 0.45
+    });
+  }
+}
+
+function addClickText(text, color='#e6edf3', size=18) {
+  clickTexts.push({ text, color, size, time: 0, maxTime: 0.7 });
+}
+
+// ====== TIMELINE (identical to flat version) ======
+let timeline = [], timelineStart = 0, running = false, prevTime = 0;
+function at(time, fn) { timeline.push({ time, fn }); }
+
+function startAnimation(correct) {
+  resetAll();
+  isCorrect = correct;
+  timeline = [];
+  let t = 0;
+
+  at(t, () => { state = 'entering'; });
+  t += 1.0;
+  at(t, () => { state = 'idle'; });
+  t += 0.5;
+  at(t, () => { state = 'raising'; });
+  t += 0.9;
+  at(t, () => { state = 'spinning'; });
+  at(t+0.3, () => addClickText('*click*'));
+  at(t+0.85, () => addClickText('*click* *click*'));
+  at(t+1.4, () => addClickText('*click* *click* *click*'));
+  t += 2.2;
+  at(t, () => { state = 'tension'; });
+  t += 0.9;
+
+  at(t, () => {
+    state = 'result'; resultTime = 0;
+    if (correct) {
+      // Small recoil from hammer striking empty chamber
+      gunRecoil = 8;
+      gunRecoilVel = -40;
+      emptyClickSpark = 1.0;
+      addClickText('*click*', '#aaa', 16);
+    } else {
+      // Big recoil from actual shot
+      gunRecoil = 25;
+      gunRecoilVel = -120;
+      addClickText('B A N G ! !', '#f85149', 26);
+    }
+  });
+
+  if (correct) {
+    at(t+0.5, () => addClickText('... huh?', '#aaa', 14));
+    at(t+0.9, () => addConfetti(W/2, H/2-30));
+    at(t+1.1, () => addClickText('S A F E ! !', '#48b858', 30));
+  } else {
+    at(t+0.1, () => { explodeHead(W/2, H/2+50); });
+    at(t+0.6, () => { addBurstParts(W/2, H/2-30); addSmoke(W/2, H/2-10); });
+    at(t+1.2, () => addClickText('B O O M !', '#e85040', 30));
+  }
+  at(t + 3.0, () => { window.parent.postMessage({ type: 'animationComplete' }, '*'); });
+
+  timelineStart = performance.now()/1000;
+  running = true;
+  timeline.sort((a,b) => a.time - b.time);
+  prevTime = timelineStart;
+  requestAnimationFrame(loop);
+}
+
+function resetAll() {
+  state = 'idle'; robotX = -120; robotBob = 0; gunAngle = 80; cylinderAngle = 0;
+  isCorrect = null; resultTime = 0; shakeX = 0; shakeY = 0; walkPhase = 0;
+  gunRecoil = 0; gunRecoilVel = 0; emptyClickSpark = 0; cylinderOverlayAlpha = 0;
+  headExploded = false; headDebris = [];
+  particles = []; confetti = []; smokes = []; clickTexts = [];
+  running = false;
+  ctx.clearRect(0,0,W,H);
+}
+
+function loop(ts) {
+  if (!running) return;
+  const now = ts/1000;
+  const elapsed = now - timelineStart;
+  const dt = Math.min(now - prevTime, 0.05);
+  prevTime = now;
+  while (timeline.length > 0 && timeline[0].time <= elapsed) timeline.shift().fn();
+  update(dt);
+  draw(dt);
+  requestAnimationFrame(loop);
+}
+
+function update(dt) {
+  switch (state) {
+    case 'entering':
+      robotX = Math.min(0, robotX + 5);
+      walkPhase += 0.35;
+      robotBob = Math.sin(walkPhase) * 4;
+      break;
+    case 'idle':
+      robotX = 0;
+      robotBob = Math.sin(Date.now()/280) * 5;
+      break;
+    case 'raising':
+      gunAngle = Math.max(0, gunAngle - 3.5);
+      robotBob = Math.sin(Date.now()/280) * 3;
+      break;
+    case 'spinning':
+      cylinderAngle += 18;
+      robotBob = Math.sin(Date.now()/400) * 2;
+      cylinderOverlayAlpha = Math.min(1, cylinderOverlayAlpha + dt * 3);
+      break;
+    case 'tension':
+      robotBob = Math.sin(Date.now()/120) * 1.5;
+      cylinderOverlayAlpha = Math.max(0, cylinderOverlayAlpha - dt * 2.5);
+      break;
+    case 'result':
+      resultTime += dt;
+      cylinderOverlayAlpha = Math.max(0, cylinderOverlayAlpha - dt * 3);
+      if (isCorrect) {
+        // Phase 1 (0-0.4s): empty click - small recoil, spark, robot freezes
+        // Phase 2 (0.4-0.8s): robot slowly looks around, confused "huh?"
+        // Phase 3 (0.8s+): realizes it survived, celebration!
+        if (resultTime < 0.4) {
+          // Frozen in place, slight trembling (processing what happened)
+          robotBob = Math.sin(Date.now() / 80) * 1.5;
+        } else if (resultTime < 0.8) {
+          // Slowly looking, slight confused bob
+          robotBob = Math.sin((resultTime - 0.4) / 0.4 * Math.PI) * -5;
+        } else if (resultTime < 1.5) {
+          // JUMP! Relief celebration
+          robotBob = -Math.sin((resultTime - 0.8) / 0.7 * Math.PI) * 35;
+        } else {
+          robotBob = Math.sin(Date.now() / 180) * 4;
+        }
+        // Toss gun after relief kicks in
+        if (resultTime > 0.8) gunAngle = Math.min(130, gunAngle + 6);
+      } else {
+        // Big recoil already applied via gunRecoil
+        if (resultTime < 0.2) {
+          shakeX = (Math.random()-0.5)*14;
+          shakeY = (Math.random()-0.5)*10;
+        } else {
+          shakeX *= 0.88; shakeY *= 0.88;
+        }
+      }
+      break;
+  }
+
+  // Recoil spring physics (runs in all states)
+  const recoilSpring = 280;  // spring stiffness
+  const recoilDamp = 12;     // damping
+  const recoilForce = -recoilSpring * gunRecoil - recoilDamp * gunRecoilVel;
+  gunRecoilVel += recoilForce * dt;
+  gunRecoil += gunRecoilVel * dt;
+  if (Math.abs(gunRecoil) < 0.1 && Math.abs(gunRecoilVel) < 0.1) {
+    gunRecoil = 0; gunRecoilVel = 0;
+  }
+
+  // Empty click spark decay
+  if (emptyClickSpark > 0) {
+    emptyClickSpark = Math.max(0, emptyClickSpark - dt * 2.5);
+  }
+}
+
+function draw(dt) {
+  ctx.clearRect(0,0,W,H);
+  const cx = W/2, cy = H/2 + 50;
+
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  let robotAngle = 0, eyeState = 'happy', mouthState = 'grin';
+
+  if (state === 'result' && !isCorrect) {
+    robotAngle = Math.min(90, resultTime * 130);
+    eyeState = 'dead';
+    mouthState = 'o';
+  } else if (state === 'result' && isCorrect) {
+    if (resultTime < 0.4) {
+      // Frozen shock - wide eyes, mouth open
+      eyeState = 'shocked';
+      mouthState = 'o';
+    } else if (resultTime < 0.8) {
+      // Confused - looking around
+      eyeState = 'shocked';
+      mouthState = 'flat';
+    } else {
+      // Relief!
+      eyeState = 'relieved';
+      mouthState = 'grin';
+    }
+  } else if (state === 'tension') {
+    mouthState = 'flat';
+  }
+
+  drawRobot(cx + robotX, cy, robotAngle, eyeState, mouthState);
+
+  // === Cylinder overlay (center of screen during spinning) ===
+  if (cylinderOverlayAlpha > 0.01) {
+    ctx.save();
+    ctx.globalAlpha = cylinderOverlayAlpha * 0.85;
+
+    // Darken background behind cylinder
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(0, 0, W, H);
+
+    const ocx = W / 2, ocy = H / 2 - 20;
+    const cylR = 80; // large cylinder radius
+
+    ctx.translate(ocx, ocy);
+    ctx.rotate(cylinderAngle * Math.PI / 180);
+
+    // Outer cylinder body
+    ctx.beginPath(); ctx.arc(0, 0, cylR, 0, Math.PI * 2);
+    const cg = ctx.createRadialGradient(-cylR * 0.2, -cylR * 0.2, cylR * 0.1, 0, 0, cylR);
+    cg.addColorStop(0, COL.metalHi);
+    cg.addColorStop(0.5, COL.metal);
+    cg.addColorStop(1, COL.metalShade);
+    ctx.fillStyle = cg;
+    ctx.fill();
+    ctx.strokeStyle = COL.outline;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Inner ring
+    ctx.beginPath(); ctx.arc(0, 0, cylR * 0.7, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 6 chambers
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      const chx = Math.cos(a) * cylR * 0.5;
+      const chy = Math.sin(a) * cylR * 0.5;
+      // Chamber hole
+      ctx.beginPath(); ctx.arc(chx, chy, 14, 0, Math.PI * 2);
+      const hg = ctx.createRadialGradient(chx, chy, 2, chx, chy, 14);
+      hg.addColorStop(0, '#1a1410');
+      hg.addColorStop(0.7, '#282018');
+      hg.addColorStop(1, '#383028');
+      ctx.fillStyle = hg;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Bullet in chamber (one chamber has a live round)
+      if (i === 0) {
+        ctx.beginPath(); ctx.arc(chx, chy, 8, 0, Math.PI * 2);
+        const bg = ctx.createRadialGradient(chx - 2, chy - 2, 1, chx, chy, 8);
+        bg.addColorStop(0, '#d4a830');
+        bg.addColorStop(0.6, '#b08018');
+        bg.addColorStop(1, '#806010');
+        ctx.fillStyle = bg;
+        ctx.fill();
+        // Primer
+        ctx.beginPath(); ctx.arc(chx, chy, 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#c06040';
+        ctx.fill();
+      }
+    }
+
+    // Center pin
+    ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2);
+    const pg = ctx.createRadialGradient(-2, -2, 1, 0, 0, 6);
+    pg.addColorStop(0, '#ccc');
+    pg.addColorStop(1, '#666');
+    ctx.fillStyle = pg;
+    ctx.fill();
+    ctx.strokeStyle = COL.outline;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Specular highlights on cylinder body
+    ctx.rotate(-cylinderAngle * Math.PI / 180); // un-rotate for fixed highlight
+    ctx.beginPath(); ctx.arc(-cylR * 0.25, -cylR * 0.3, cylR * 0.18, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // Head debris
+  headDebris.forEach(d => {
+    d.x += d.vx; d.y += d.vy; d.vy += 0.2;
+    d.vx *= 0.995;
+    d.angle += d.spin; d.life -= dt;
+    if (d.life <= 0) return;
+    const alpha = Math.min(1, d.life / (d.maxLife * 0.3));
+    ctx.save();
+    ctx.translate(d.x, d.y);
+    ctx.rotate(d.angle * Math.PI / 180);
+    ctx.globalAlpha = alpha;
+    if (d.type === 'panel') {
+      // Irregular metal panel fragment
+      const s = d.size;
+      ctx.beginPath();
+      ctx.moveTo(-s * 0.5, -s * 0.3);
+      ctx.lineTo(s * 0.3, -s * 0.5);
+      ctx.lineTo(s * 0.5, s * 0.2);
+      ctx.lineTo(-s * 0.1, s * 0.5);
+      ctx.closePath();
+      const pg = ctx.createLinearGradient(-s/2, -s/2, s/2, s/2);
+      pg.addColorStop(0, d.hi); pg.addColorStop(0.5, d.color); pg.addColorStop(1, d.shade);
+      ctx.fillStyle = pg; ctx.fill();
+      ctx.strokeStyle = COL.outline; ctx.lineWidth = 1.5; ctx.stroke();
+    } else if (d.type === 'eye') {
+      // Eye fragment - partial ellipse
+      ctx.beginPath(); ctx.arc(0, 0, d.size / 2, 0, Math.PI * 2);
+      const eg = ctx.createRadialGradient(-1, -1, 1, 0, 0, d.size / 2);
+      eg.addColorStop(0, d.hi); eg.addColorStop(1, d.shade);
+      ctx.fillStyle = eg; ctx.fill();
+      ctx.strokeStyle = COL.outline; ctx.lineWidth = 1.5; ctx.stroke();
+    } else if (d.type === 'antenna') {
+      // Antenna ball
+      ctx.beginPath(); ctx.arc(0, 0, d.size / 2, 0, Math.PI * 2);
+      const ag2 = ctx.createRadialGradient(-2, -2, 1, 0, 0, d.size / 2);
+      ag2.addColorStop(0, d.hi); ag2.addColorStop(1, d.shade);
+      ctx.fillStyle = ag2; ctx.fill();
+      ctx.strokeStyle = COL.outline; ctx.lineWidth = 1.5; ctx.stroke();
+    } else if (d.type === 'tooth') {
+      roundRectPath(-d.size/2, -d.size/2, d.size, d.size * 1.4, 1);
+      ctx.fillStyle = d.color; ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.8; ctx.stroke();
+    } else if (d.type === 'bolt' || d.type === 'ear') {
+      ctx.beginPath(); ctx.arc(0, 0, d.size / 2, 0, Math.PI * 2);
+      ctx.fillStyle = d.color; ctx.fill();
+      ctx.strokeStyle = COL.outline; ctx.lineWidth = 1; ctx.stroke();
+    } else if (d.type === 'wire') {
+      ctx.beginPath();
+      ctx.moveTo(0, -6); ctx.quadraticCurveTo(4, 0, -2, 8);
+      ctx.strokeStyle = d.color; ctx.lineWidth = 2; ctx.stroke();
+    } else if (d.type === 'spark') {
+      ctx.beginPath(); ctx.arc(0, 0, d.size, 0, Math.PI * 2);
+      ctx.fillStyle = d.color; ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  });
+  headDebris = headDebris.filter(d => d.life > 0);
+
+  // Particles
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy; p.vy += 0.18;
+    p.angle += p.spin; p.life -= dt;
+    if (p.life <= 0) return;
+    const alpha = Math.max(0, p.life/p.maxLife);
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.angle * Math.PI/180);
+    ctx.globalAlpha = alpha;
+    if (p.type === 'spring') {
+      ctx.strokeStyle = p.color; ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        ctx.quadraticCurveTo(5, i*6-15, -5, i*6-12);
+      }
+      ctx.stroke();
+    } else if (p.type === 'gear') {
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle = COL.metalShade; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-1.5,-9,3,18); ctx.fillRect(-9,-1.5,18,3);
+    } else {
+      ctx.beginPath(); ctx.arc(0,0,3.5,0,Math.PI*2);
+      ctx.fillStyle = p.color; ctx.fill();
+      ctx.strokeStyle = COL.outline; ctx.lineWidth = 1; ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  });
+  particles = particles.filter(p => p.life > 0);
+
+  // Confetti
+  confetti.forEach(c => {
+    c.x += c.vx; c.y += c.vy; c.vy += 0.13; c.vx *= 0.995;
+    c.angle += c.spin; c.life -= dt;
+    if (c.life <= 0) return;
+    const alpha = Math.min(1, c.life * 1.5);
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate(c.angle * Math.PI/180);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = c.color;
+    if (c.round) {
+      ctx.beginPath(); ctx.arc(0,0,c.w/2,0,Math.PI*2); ctx.fill();
+    } else {
+      ctx.fillRect(-c.w/2, -c.h/2, c.w, c.h);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  });
+  confetti = confetti.filter(c => c.life > 0);
+
+  // Smoke
+  smokes.forEach(s => {
+    s.y += s.vy; s.r += 0.35; s.life -= dt;
+    if (s.life <= 0) return;
+    const alpha = (s.life/s.maxLife) * s.opacity;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+    const smg = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r);
+    smg.addColorStop(0, `rgba(140,130,120,${alpha})`);
+    smg.addColorStop(1, `rgba(100,90,80,0)`);
+    ctx.fillStyle = smg;
+    ctx.fill();
+  });
+  smokes = smokes.filter(s => s.life > 0);
+
+  // Text with shadow
+  ctx.textAlign = 'center';
+  clickTexts.forEach(ct => {
+    ct.time += dt;
+    if (ct.time > ct.maxTime + 1.2) return;
+    let alpha = 1;
+    if (ct.time < 0.12) alpha = ct.time/0.12;
+    if (ct.time > ct.maxTime) alpha = Math.max(0, 1-(ct.time-ct.maxTime)/1.2);
+    let scale = 1;
+    if (ct.time < 0.12) scale = 0.3 + (ct.time/0.12)*0.7;
+    else if (ct.time < 0.2) scale = 1 + (1 - (ct.time-0.12)/0.08) * 0.15;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = `900 ${ct.size * scale}px 'JetBrains Mono', monospace`;
+    // Text shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillText(ct.text, W/2 + 2, 82);
+    ctx.fillStyle = ct.color;
+    ctx.shadowColor = 'rgba(0,0,0,0.4)';
+    ctx.shadowBlur = 10;
+    ctx.fillText(ct.text, W/2, 80);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  });
+  clickTexts = clickTexts.filter(ct => ct.time < ct.maxTime + 1.2);
+
+  ctx.restore();
+}
+
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'start') startAnimation(e.data.isCorrect);
+  if (e.data?.type === 'reset') resetAll();
+});
+</script>
+</body>
+</html>

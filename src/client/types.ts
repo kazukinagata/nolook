@@ -48,4 +48,4 @@ export interface GameResults {
   avgDifficulty: number;
 }
 
-export type GamePhase = "start" | "playing" | "feedback" | "results";
+export type GamePhase = "start" | "playing" | "animating" | "feedback" | "results";

@@ -5,6 +5,7 @@ import ConversationView from "./ConversationView";
 import ToolConfirmation from "./ToolConfirmation";
 import Timer from "./Timer";
 import ProgressBar from "./ProgressBar";
+import AnimationOverlay from "./AnimationOverlay";
 
 interface FeedbackData {
   correct: boolean;
@@ -16,6 +17,9 @@ interface FeedbackData {
 interface Props {
   question: Question;
   feedback: FeedbackData | null;
+  animating: boolean;
+  animationCorrect: boolean;
+  onAnimationComplete: () => void;
   progress: { answered: number; total: number };
   onAnswer: (answer: "approve" | "reject", timedOut?: boolean) => void;
   onNext: () => void;
@@ -26,6 +30,9 @@ interface Props {
 export default function QuizScreen({
   question,
   feedback,
+  animating,
+  animationCorrect,
+  onAnimationComplete,
   progress,
   onAnswer,
   onNext,
@@ -35,8 +42,8 @@ export default function QuizScreen({
   const answeredRef = useRef(false);
 
   useEffect(() => {
-    answeredRef.current = !!feedback;
-  }, [question.id, feedback]);
+    answeredRef.current = !!feedback || animating;
+  }, [question.id, feedback, animating]);
 
   const handleAnswer = useCallback(
     (answer: "approve" | "reject") => {
@@ -55,6 +62,8 @@ export default function QuizScreen({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (animating) return;
+
       if (feedback) {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -74,7 +83,7 @@ export default function QuizScreen({
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [feedback, handleAnswer, onNext]);
+  }, [feedback, animating, handleAnswer, onNext]);
 
   return (
     <div className="quiz-screen">
@@ -99,7 +108,7 @@ export default function QuizScreen({
           toolName={question.toolName}
           toolParams={question.toolParams}
           onAnswer={handleAnswer}
-          disabled={!!feedback || submitting}
+          disabled={!!feedback || submitting || animating}
         />
 
         {submitting && !feedback && (
@@ -109,7 +118,7 @@ export default function QuizScreen({
           </div>
         )}
 
-        {!feedback && (
+        {!feedback && !animating && (
           <Timer
             key={question.id}
             duration={question.timeLimit}
@@ -167,6 +176,13 @@ export default function QuizScreen({
           Difficulty: {question.difficulty.toUpperCase()}
         </span>
       </footer>
+
+      {animating && (
+        <AnimationOverlay
+          isCorrect={animationCorrect}
+          onComplete={onAnimationComplete}
+        />
+      )}
     </div>
   );
 }

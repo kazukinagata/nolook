@@ -10,11 +10,15 @@ export default function App() {
     case "start":
       return <StartScreen onStart={game.startGame} />;
     case "playing":
+    case "animating":
     case "feedback":
       return (
         <QuizScreen
           question={game.question!}
           feedback={game.phase === "feedback" ? game.feedback! : null}
+          animating={game.phase === "animating"}
+          animationCorrect={game.feedback?.correct ?? false}
+          onAnimationComplete={game.finishAnimation}
           progress={game.progress}
           onAnswer={game.submitAnswer}
           onNext={game.nextQuestion}

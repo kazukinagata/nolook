@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Door Dive Robot - Canvas 3D/Shaded Version</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117; color: #e6edf3;
+    font-family: 'JetBrains Mono', monospace;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh; overflow: hidden;
+  }
+  canvas { border-radius: 12px; }
+  .controls { margin-top: 40px; display: flex; gap: 16px; }
+  .controls button {
+    padding: 12px 32px; border: 1px solid #30363d; border-radius: 8px;
+    background: #161b22; color: #e6edf3; font-family: inherit;
+    font-size: 14px; cursor: pointer; transition: all 0.15s ease;
+  }
+  .controls button:hover { background: #1f2937; border-color: #58a6ff; }
+  .controls button.correct-btn { border-color: #238636; }
+  .controls button.correct-btn:hover { background: rgba(35,134,54,0.2); }
+  .controls button.incorrect-btn { border-color: #da3633; }
+  .controls button.incorrect-btn:hover { background: rgba(218,54,51,0.2); }
+</style>
+</head>
+<body>
+<canvas id="canvas" width="600" height="500"></canvas>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// Palette (same as roulette)
+const COL = {
+  body: '#d44030', bodyHi: '#e85848', bodyShade: '#9a2218', bodyDark: '#7a1a12',
+  outline: '#2a1810', outlineW: 3,
+  eye: '#e8a020', eyeHi: '#f0c848', eyeShade: '#c07818',
+  antenna: '#40b0e0', antennaHi: '#70d0f0',
+  metal: '#8a8078', metalHi: '#a8a098', metalShade: '#605850',
+  accent: '#e8a020', green: '#48b858', blue: '#4898d0',
+};
+
+// Door colors
+const DOOR_O = { base: '#2888d0', hi: '#48a8e8', shade: '#185888' }; // ○ door - blue
+const DOOR_X = { base: '#d04838', hi: '#e86858', shade: '#982828' }; // × door - red
+
+let state = 'idle';
+let robotX = 0, robotY = 0, robotBob = 0, robotAngle = 0;
+let isCorrect = null, resultTime = 0, shakeX = 0, shakeY = 0;
+let walkPhase = 0;
+// Door animation
+let doorOAngle = 0, doorXAngle = 0; // door open angle (0=closed, 1=open)
+let chosenDoor = 0; // 0=left(O), 1=right(X) - which door robot dives into
+let diveProgress = 0; // 0-1 dive arc progress
+let splashParticles = [];
+let waterLevel = 0; // for pool behind X door
+let robotVisible = true;
+
+let particles = [], confetti = [], smokes = [], clickTexts = [];
+
+// ====== DRAWING HELPERS (from roulette) ======
+function roundRectPath(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+  ctx.arcTo(x+w,y,x+w,y+r,r); ctx.lineTo(x+w,y+h-r);
+  ctx.arcTo(x+w,y+h,x+w-r,y+h,r); ctx.lineTo(x+r,y+h);
+  ctx.arcTo(x,y+h,x,y+h-r,r); ctx.lineTo(x,y+r);
+  ctx.arcTo(x,y,x+r,y,r); ctx.closePath();
+}
+
+function shadedRect(x,y,w,h,r,base,hi,shade,lineW=COL.outlineW) {
+  roundRectPath(x,y,w,h,r);
+  const g=ctx.createLinearGradient(x,y,x,y+h);
+  g.addColorStop(0,hi); g.addColorStop(0.45,base); g.addColorStop(1,shade);
+  ctx.fillStyle=g; ctx.fill();
+  ctx.save(); ctx.clip();
+  roundRectPath(x+2,y+1,w-4,h*0.35,r);
+  ctx.fillStyle='rgba(255,255,255,0.12)'; ctx.fill();
+  ctx.restore();
+  roundRectPath(x,y,w,h,r);
+  ctx.save(); ctx.clip();
+  roundRectPath(x+2,y+h*0.6,w,h*0.5,r);
+  ctx.fillStyle='rgba(0,0,0,0.1)'; ctx.fill();
+  ctx.restore();
+  roundRectPath(x,y,w,h,r);
+  ctx.strokeStyle=COL.outline; ctx.lineWidth=lineW; ctx.stroke();
+}
+
+function flatRect(x,y,w,h,r,fill,lineW=2) {
+  roundRectPath(x,y,w,h,r);
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  ctx.strokeStyle=COL.outline; ctx.lineWidth=lineW; ctx.stroke();
+}
+
+function shadedCircle(cx,cy,r,base,hi,shade,lineW=2) {
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+  const g=ctx.createRadialGradient(cx-r*0.3,cy-r*0.3,r*0.1,cx,cy,r);
+  g.addColorStop(0,hi); g.addColorStop(0.6,base); g.addColorStop(1,shade);
+  ctx.fillStyle=g; ctx.fill();
+  ctx.strokeStyle=COL.outline; ctx.lineWidth=lineW; ctx.stroke();
+}
+
+function rivet(x,y,r=3.5) {
+  shadedCircle(x,y,r,COL.metal,COL.metalHi,COL.metalShade,1.5);
+  ctx.beginPath(); ctx.moveTo(x-r*0.5,y); ctx.lineTo(x+r*0.5,y);
+  ctx.strokeStyle=COL.outline; ctx.lineWidth=1.2; ctx.stroke();
+}
+
+function specular(x,y,r) {
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.fill();
+}
+function wearSpot(x,y,r) {
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fillStyle='rgba(80,40,20,0.15)'; ctx.fill();
+}
+
+// ====== DOORS ======
+function drawDoor(cx, cy, doorW, doorH, symbol, colors, openAngle) {
+  // Door frame (always visible)
+  shadedRect(cx-doorW/2-6, cy-doorH-8, doorW+12, doorH+12, 5, COL.metal, COL.metalHi, COL.metalShade);
+
+  // Dark interior behind door
+  roundRectPath(cx-doorW/2, cy-doorH, doorW, doorH, 3);
+  ctx.fillStyle = '#0a0808';
+  ctx.fill();
+
+  // Pool water behind X door (incorrect)
+  if (symbol === 'X' && waterLevel > 0) {
+    ctx.save();
+    roundRectPath(cx-doorW/2, cy-doorH, doorW, doorH, 3);
+    ctx.clip();
+    const poolTop = cy - waterLevel;
+    const wg = ctx.createLinearGradient(cx, poolTop, cx, cy);
+    wg.addColorStop(0, '#2080c0');
+    wg.addColorStop(1, '#104060');
+    ctx.fillStyle = wg;
+    ctx.fillRect(cx-doorW/2, poolTop, doorW, cy - poolTop);
+    // Wave on surface
+    ctx.beginPath();
+    for (let wx = cx-doorW/2; wx <= cx+doorW/2; wx += 2) {
+      const wy = poolTop + Math.sin(wx * 0.08 + Date.now() * 0.004) * 3;
+      if (wx === cx-doorW/2) ctx.moveTo(wx, wy);
+      else ctx.lineTo(wx, wy);
+    }
+    ctx.lineTo(cx+doorW/2, poolTop+5);
+    ctx.lineTo(cx-doorW/2, poolTop+5);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(100,200,255,0.3)';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Safe floor behind O door (correct)
+  if (symbol === 'O') {
+    ctx.save();
+    roundRectPath(cx-doorW/2, cy-doorH, doorW, doorH, 3);
+    ctx.clip();
+    // Floor with checkerboard hint
+    const floorY = cy - 25;
+    ctx.fillStyle = '#3a3028';
+    ctx.fillRect(cx-doorW/2, floorY, doorW, 25);
+    ctx.fillStyle = '#4a4038';
+    for (let i = 0; i < 4; i++) {
+      ctx.fillRect(cx - doorW/2 + i * 20 + (i%2)*10, floorY, 10, 25);
+    }
+    ctx.restore();
+  }
+
+  // Door panel (with perspective when opening)
+  if (openAngle < 0.95) {
+    ctx.save();
+    const scaleX = Math.max(0.05, 1 - openAngle);
+    ctx.translate(cx - doorW/2, cy - doorH);
+    ctx.scale(scaleX, 1);
+
+    roundRectPath(0, 0, doorW, doorH, 3);
+    const dg = ctx.createLinearGradient(0, 0, 0, doorH);
+    dg.addColorStop(0, colors.hi); dg.addColorStop(0.45, colors.base); dg.addColorStop(1, colors.shade);
+    ctx.fillStyle = dg; ctx.fill();
+    // Highlight
+    roundRectPath(4, 2, doorW - 8, doorH * 0.3, 3);
+    ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.fill();
+    // Outline
+    roundRectPath(0, 0, doorW, doorH, 3);
+    ctx.strokeStyle = COL.outline; ctx.lineWidth = 3; ctx.stroke();
+
+    // Symbol
+    ctx.save();
+    ctx.translate(doorW/2, doorH/2);
+    ctx.font = '900 48px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.strokeStyle = COL.outline; ctx.lineWidth = 3;
+    ctx.strokeText(symbol === 'O' ? '○' : '✕', 0, 0);
+    ctx.fillText(symbol === 'O' ? '○' : '✕', 0, 0);
+    ctx.restore();
+
+    // Door knob
+    shadedCircle(doorW - 15, doorH/2, 5, COL.accent, COL.eyeHi, COL.eyeShade, 1.5);
+
+    ctx.restore();
+  }
+}
+
+// ====== ROBOT (simplified - no gun arm) ======
+function drawRobot(x, y, angle, eyeState, mouthState, scale) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (angle) ctx.rotate(angle * Math.PI / 180);
+  if (scale && scale !== 1) ctx.scale(scale, scale);
+
+  const b = robotBob;
+
+  // Shadow
+  ctx.save();
+  ctx.translate(0, 170 - b);
+  ctx.scale(1, 0.22);
+  ctx.beginPath(); ctx.arc(0,0,58,0,Math.PI*2);
+  const sg=ctx.createRadialGradient(0,0,10,0,0,58);
+  sg.addColorStop(0,'rgba(0,0,0,0.35)'); sg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=sg; ctx.fill();
+  ctx.restore();
+
+  // Legs
+  ctx.save();
+  if (state === 'entering') ctx.rotate(Math.sin(walkPhase) * 0.12);
+  shadedRect(-32, 100-b, 20, 40, 4, COL.body, COL.bodyHi, COL.bodyShade);
+  shadedRect(-40, 135-b, 35, 14, 6, COL.body, COL.bodyHi, COL.bodyShade);
+  shadedCircle(-22, 100-b, 5, COL.accent, COL.eyeHi, COL.eyeShade, 1.5);
+  ctx.restore();
+  ctx.save();
+  if (state === 'entering') ctx.rotate(-Math.sin(walkPhase) * 0.12);
+  shadedRect(12, 100-b, 20, 40, 4, COL.body, COL.bodyHi, COL.bodyShade);
+  shadedRect(5, 135-b, 35, 14, 6, COL.body, COL.bodyHi, COL.bodyShade);
+  shadedCircle(22, 100-b, 5, COL.accent, COL.eyeHi, COL.eyeShade, 1.5);
+  ctx.restore();
+
+  // Body
+  shadedRect(-45, -10-b, 90, 115, 8, COL.body, COL.bodyHi, COL.bodyShade);
+  specular(-30, 0-b, 4); wearSpot(20, 80-b, 4);
+  flatRect(-30, 5-b, 60, 40, 5, COL.bodyDark, 1.5);
+  [{cx:-15,base:COL.accent,hi:'#f0d060',shade:'#b07010'},
+   {cx:5,base:COL.green,hi:'#68d878',shade:'#288838'},
+   {cx:25,base:COL.blue,hi:'#68b8e8',shade:'#2868a0'}].forEach(btn=>{
+    shadedCircle(btn.cx,20-b,5.5,btn.base,btn.hi,btn.shade,1.5);
+  });
+  shadedCircle(0, 75-b, 11, '#ccc','#eee','#888', 2);
+  rivet(-38,-3-b); rivet(38,-3-b); rivet(-38,98-b); rivet(38,98-b);
+
+  // Arms (both normal, no gun)
+  ctx.save();
+  ctx.translate(-55, 5-b); ctx.rotate(-12 * Math.PI/180);
+  shadedRect(-9,0,18,55,7,COL.body,COL.bodyHi,COL.bodyShade);
+  shadedRect(-8,55,8,16,3,COL.body,COL.bodyHi,COL.bodyShade,2);
+  shadedRect(2,55,8,16,3,COL.body,COL.bodyHi,COL.bodyShade,2);
+  ctx.restore();
+  ctx.save();
+  ctx.translate(55, 5-b); ctx.rotate(12 * Math.PI/180);
+  shadedRect(-9,0,18,55,7,COL.body,COL.bodyHi,COL.bodyShade);
+  shadedRect(-8,55,8,16,3,COL.body,COL.bodyHi,COL.bodyShade,2);
+  shadedRect(2,55,8,16,3,COL.body,COL.bodyHi,COL.bodyShade,2);
+  ctx.restore();
+
+  // Head
+  shadedRect(-40,-90-b,80,75,8,COL.body,COL.bodyHi,COL.bodyShade);
+  specular(-25,-82-b,5); wearSpot(20,-30-b,3);
+
+  // Antenna
+  shadedRect(-3,-115-b,6,22,3,COL.metal,COL.metalHi,COL.metalShade,1.5);
+  const antP=(Math.sin(Date.now()/400)+1)/2;
+  shadedCircle(0,-120-b,10+antP*2,COL.antenna,COL.antennaHi,'#2880a0',2);
+  specular(-3,-124-b,3);
+
+  // Ear bolts
+  rivet(-40,-52-b,6); rivet(40,-52-b,6);
+
+  // Eyes
+  if (eyeState === 'happy') {
+    [{cx:-17,rx:14,ry:16},{cx:17,rx:12,ry:15}].forEach(e=>{
+      ctx.beginPath(); ctx.ellipse(e.cx,-58-b,e.rx+2,e.ry+2,0,0,Math.PI*2);
+      ctx.fillStyle='rgba(0,0,0,0.15)'; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(e.cx,-58-b,e.rx,e.ry,0,0,Math.PI*2);
+      const eg=ctx.createRadialGradient(e.cx-3,-62-b,2,e.cx,-58-b,e.ry);
+      eg.addColorStop(0,COL.eyeHi); eg.addColorStop(0.5,COL.eye); eg.addColorStop(1,COL.eyeShade);
+      ctx.fillStyle=eg; ctx.fill();
+      ctx.strokeStyle=COL.outline; ctx.lineWidth=2.5; ctx.stroke();
+      ctx.beginPath(); ctx.arc(e.cx+2,-56-b,5,0,Math.PI*2);
+      ctx.fillStyle=COL.outline; ctx.fill();
+      specular(e.cx-4,-63-b,3.5);
+    });
+  } else if (eyeState === 'determined') {
+    // Narrowed, focused eyes (about to dive!)
+    [{cx:-17,rx:14,ry:10},{cx:17,rx:12,ry:9}].forEach(e=>{
+      ctx.beginPath(); ctx.ellipse(e.cx,-55-b,e.rx,e.ry,0,0,Math.PI*2);
+      const eg=ctx.createRadialGradient(e.cx-3,-58-b,2,e.cx,-55-b,e.ry);
+      eg.addColorStop(0,COL.eyeHi); eg.addColorStop(0.5,COL.eye); eg.addColorStop(1,COL.eyeShade);
+      ctx.fillStyle=eg; ctx.fill();
+      ctx.strokeStyle=COL.outline; ctx.lineWidth=2.5; ctx.stroke();
+      ctx.beginPath(); ctx.arc(e.cx+2,-55-b,4,0,Math.PI*2);
+      ctx.fillStyle=COL.outline; ctx.fill();
+      specular(e.cx-4,-58-b,2.5);
+    });
+  } else if (eyeState === 'dizzy') {
+    // Spiral dizzy eyes
+    [-17, 17].forEach(cx => {
+      ctx.beginPath(); ctx.ellipse(cx,-58-b,13,14,0,0,Math.PI*2);
+      ctx.fillStyle='rgba(0,0,0,0.15)'; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx,-58-b,12,13,0,0,Math.PI*2);
+      ctx.fillStyle=COL.eye; ctx.fill();
+      ctx.strokeStyle=COL.outline; ctx.lineWidth=2.5; ctx.stroke();
+      // Spiral
+      ctx.save();
+      ctx.translate(cx,-58-b);
+      ctx.rotate(Date.now()*0.005);
+      ctx.strokeStyle=COL.outline; ctx.lineWidth=2; ctx.lineCap='round';
+      ctx.beginPath();
+      for(let i=0;i<30;i++){
+        const a=i*0.4; const r=1+i*0.3;
+        const sx=Math.cos(a)*r, sy=Math.sin(a)*r;
+        if(i===0)ctx.moveTo(sx,sy); else ctx.lineTo(sx,sy);
+      }
+      ctx.stroke(); ctx.lineCap='butt';
+      ctx.restore();
+    });
+  } else if (eyeState === 'relieved') {
+    ctx.strokeStyle=COL.outline; ctx.lineWidth=3.5; ctx.lineCap='round';
+    [-17,17].forEach(cx=>{
+      ctx.beginPath(); ctx.ellipse(cx,-58-b,12,10,0,0,Math.PI*2);
+      ctx.fillStyle='rgba(232,160,32,0.2)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(cx,-56-b,10,0.2,Math.PI-0.2); ctx.stroke();
+    }); ctx.lineCap='butt';
+  } else if (eyeState === 'shocked') {
+    [{cx:-17,rx:15,ry:17},{cx:17,rx:13,ry:16}].forEach(e=>{
+      ctx.beginPath(); ctx.ellipse(e.cx,-57-b,e.rx+2,e.ry+2,0,0,Math.PI*2);
+      ctx.fillStyle='rgba(0,0,0,0.15)'; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(e.cx,-58-b,e.rx,e.ry,0,0,Math.PI*2);
+      const eg=ctx.createRadialGradient(e.cx-3,-62-b,2,e.cx,-58-b,e.ry);
+      eg.addColorStop(0,COL.eyeHi); eg.addColorStop(0.5,COL.eye); eg.addColorStop(1,COL.eyeShade);
+      ctx.fillStyle=eg; ctx.fill();
+      ctx.strokeStyle=COL.outline; ctx.lineWidth=2.5; ctx.stroke();
+      ctx.beginPath(); ctx.arc(e.cx,-58-b,2.5,0,Math.PI*2);
+      ctx.fillStyle=COL.outline; ctx.fill();
+      specular(e.cx-4,-64-b,4);
+    });
+  }
+
+  // Mouth
+  if (mouthState === 'grin') {
+    flatRect(-25,-33-b,50,20,4,'#1a0e08',2.5);
+    for(let row=0;row<2;row++)for(let col=0;col<4;col++){
+      const tw=col===3?12:10, tx=-22+col*12, ty=-31+row*9-b, th=row===0?8:7;
+      roundRectPath(tx,ty,tw,th,1.5);
+      const tg=ctx.createLinearGradient(tx,ty,tx,ty+th);
+      tg.addColorStop(0,'#f8f8f0'); tg.addColorStop(1,'#d8d0c8');
+      ctx.fillStyle=tg; ctx.fill();
+    }
+  } else if (mouthState === 'o') {
+    ctx.beginPath(); ctx.ellipse(0,-23-b,8,10,0,0,Math.PI*2);
+    ctx.fillStyle='#1a0e08'; ctx.fill();
+    ctx.strokeStyle=COL.outline; ctx.lineWidth=2.5; ctx.stroke();
+  } else if (mouthState === 'flat') {
+    ctx.beginPath(); ctx.moveTo(-15,-25-b); ctx.lineTo(15,-25-b);
+    ctx.strokeStyle=COL.outline; ctx.lineWidth=3.5; ctx.lineCap='round'; ctx.stroke(); ctx.lineCap='butt';
+  }
+
+  ctx.restore();
+}
+
+// ====== SPLASH PARTICLES ======
+function addSplash(x, y) {
+  for (let i = 0; i < 20; i++) {
+    const a = -Math.PI * 0.15 - Math.random() * Math.PI * 0.7;
+    const speed = 3 + Math.random() * 7;
+    splashParticles.push({
+      x, y, vx: Math.cos(a)*speed, vy: Math.sin(a)*speed,
+      r: 2 + Math.random()*4, life: 1 + Math.random()*0.8, maxLife: 2
+    });
+  }
+}
+
+function addConfetti(x, y) {
+  const colors = ['#48b858','#4898d0','#e8a020','#e86060','#a878d0','#e08030','#d44030','#40b0e0'];
+  for (let i = 0; i < 60; i++) {
+    const a = Math.random()*Math.PI*2;
+    const speed = 2+Math.random()*6;
+    confetti.push({
+      x,y,vx:Math.cos(a)*speed,vy:-4-Math.random()*7,
+      color:colors[Math.floor(Math.random()*colors.length)],
+      w:4+Math.random()*6,h:3+Math.random()*5,
+      life:2.5+Math.random(),angle:Math.random()*360,
+      spin:(Math.random()-0.5)*18,round:Math.random()>0.6
+    });
+  }
+}
+
+function addClickText(text,color='#e6edf3',size=18) {
+  clickTexts.push({text,color,size,time:0,maxTime:0.7});
+}
+
+// ====== TIMELINE ======
+let timeline=[], timelineStart=0, running=false, prevTime=0;
+function at(time,fn){timeline.push({time,fn});}
+
+function startAnimation(correct) {
+  resetAll();
+  isCorrect = correct;
+  chosenDoor = correct ? 0 : 1; // O=0(left), X=1(right)
+  timeline = [];
+  let t = 0;
+
+  // 1. Robot walks in to center
+  at(t, () => { state = 'entering'; });
+  t += 1.0;
+
+  // 2. Doors appear, robot looks at them
+  at(t, () => { state = 'looking'; });
+  t += 0.8;
+
+  // 3. Robot decides - turns toward chosen door
+  at(t, () => { state = 'deciding'; addClickText('...', '#aaa', 16); });
+  t += 0.6;
+
+  // 4. DIVE!
+  at(t, () => {
+    state = 'diving';
+    diveProgress = 0;
+    addClickText(correct ? 'HERE GOES!' : 'HERE GOES!', '#e8a020', 20);
+  });
+  t += 0.3;
+  // Door opens as robot approaches
+  at(t, () => { state = 'doorOpening'; });
+  t += 0.5;
+
+  // 5. Through the door
+  at(t, () => { state = 'through'; });
+  t += 0.4;
+
+  // 6. Result
+  at(t, () => {
+    state = 'result';
+    resultTime = 0;
+    if (correct) {
+      addClickText('*thud*', '#aaa', 16);
+    } else {
+      addSplash(W/2 + 80, 360);
+      addClickText('S P L A S H !', '#4898d0', 24);
+      shakeX = 5; shakeY = 5;
+    }
+  });
+
+  if (correct) {
+    at(t + 0.5, () => addClickText('...safe!', '#aaa', 14));
+    at(t + 1.0, () => { addConfetti(W/2, H/2 - 30); addClickText('S A F E !', '#48b858', 30); });
+  } else {
+    at(t + 0.8, () => addClickText('*blub blub*', '#4898d0', 16));
+    at(t + 1.5, () => addClickText('W R O N G !', '#e85040', 30));
+  }
+  at(t + 3.0, () => { window.parent.postMessage({ type: 'animationComplete' }, '*'); });
+
+  timelineStart = performance.now()/1000;
+  running = true;
+  timeline.sort((a,b)=>a.time-b.time);
+  prevTime = timelineStart;
+  requestAnimationFrame(loop);
+}
+
+function resetAll() {
+  state='idle'; robotX=0; robotY=0; robotBob=0; robotAngle=0;
+  isCorrect=null; resultTime=0; shakeX=0; shakeY=0; walkPhase=0;
+  doorOAngle=0; doorXAngle=0; diveProgress=0; waterLevel=0;
+  robotVisible=true; splashParticles=[];
+  particles=[]; confetti=[]; smokes=[]; clickTexts=[];
+  running=false; ctx.clearRect(0,0,W,H);
+}
+
+function loop(ts) {
+  if(!running) return;
+  const now=ts/1000, elapsed=now-timelineStart;
+  const dt=Math.min(now-prevTime,0.05); prevTime=now;
+  while(timeline.length>0 && timeline[0].time<=elapsed) timeline.shift().fn();
+  update(dt); draw(dt);
+  requestAnimationFrame(loop);
+}
+
+function update(dt) {
+  const targetDoor = chosenDoor; // 0=left, 1=right
+  const doorCX = targetDoor === 0 ? W/2 - 80 : W/2 + 80;
+
+  switch(state) {
+    case 'entering':
+      robotX = Math.min(W/2, robotX + 5);
+      walkPhase += 0.35;
+      robotBob = Math.sin(walkPhase) * 4;
+      break;
+    case 'looking':
+      robotX = W/2;
+      robotBob = Math.sin(Date.now()/300) * 3;
+      // Doors slide into view
+      waterLevel = Math.min(60, waterLevel + 2);
+      break;
+    case 'deciding':
+      robotBob = 0;
+      // Robot leans toward chosen door
+      if (targetDoor === 0) {
+        robotAngle = Math.max(-8, robotAngle - 0.5);
+      } else {
+        robotAngle = Math.min(8, robotAngle + 0.5);
+      }
+      break;
+    case 'diving':
+      diveProgress = Math.min(1, diveProgress + dt * 3);
+      // Parabolic arc toward door
+      const diveStartX = W/2;
+      const diveEndX = doorCX;
+      const t = diveProgress;
+      robotX = diveStartX + (diveEndX - diveStartX) * t;
+      robotY = -Math.sin(t * Math.PI) * 80; // arc up then down
+      robotAngle = targetDoor === 0 ? -15 - t * 30 : 15 + t * 30; // spin
+      robotBob = 0;
+      break;
+    case 'doorOpening':
+      diveProgress = Math.min(1, diveProgress + dt * 2.5);
+      const dt2 = diveProgress;
+      robotX = (W/2) + (doorCX - W/2) * Math.min(1, dt2 * 1.2);
+      robotY = -Math.sin(Math.min(1, dt2 * 1.2) * Math.PI) * 60;
+      robotAngle = targetDoor === 0 ? -45 * dt2 : 45 * dt2;
+      // Open the correct door
+      if (targetDoor === 0) doorOAngle = Math.min(1, doorOAngle + dt * 4);
+      else doorXAngle = Math.min(1, doorXAngle + dt * 4);
+      break;
+    case 'through':
+      // Robot disappears into door
+      robotVisible = false;
+      break;
+    case 'result':
+      resultTime += dt;
+      if (isCorrect) {
+        if (resultTime > 0.8) {
+          robotVisible = true;
+          robotX = W/2 - 80;
+          robotY = 0;
+          robotAngle = 0;
+          robotBob = Math.sin(Date.now()/200) * 4;
+        }
+      } else {
+        // Robot pops up from pool with dizzy eyes
+        if (resultTime > 0.6) {
+          robotVisible = true;
+          robotX = W/2 + 80;
+          robotY = Math.max(-10, 20 - (resultTime - 0.6) * 40);
+          robotAngle = Math.sin(resultTime * 5) * 8;
+          robotBob = 0;
+        }
+        shakeX *= 0.92; shakeY *= 0.92;
+      }
+      break;
+  }
+}
+
+function draw(dt) {
+  ctx.clearRect(0,0,W,H);
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  // Floor
+  const floorY = 420;
+  ctx.fillStyle = '#1a1614';
+  ctx.fillRect(0, floorY, W, H - floorY);
+
+  // Draw doors (background)
+  drawDoor(W/2 - 80, floorY, 80, 150, 'O', DOOR_O, doorOAngle);
+  drawDoor(W/2 + 80, floorY, 80, 150, 'X', DOOR_X, doorXAngle);
+
+  // Robot
+  let eyeState = 'happy', mouthState = 'grin';
+  if (state === 'deciding') { eyeState = 'determined'; mouthState = 'grin'; }
+  else if (state === 'diving' || state === 'doorOpening') { eyeState = 'determined'; mouthState = 'o'; }
+  else if (state === 'result' && isCorrect) {
+    if (resultTime < 0.8) { eyeState = 'shocked'; mouthState = 'o'; }
+    else if (resultTime < 1.2) { eyeState = 'shocked'; mouthState = 'flat'; }
+    else { eyeState = 'relieved'; mouthState = 'grin'; }
+  } else if (state === 'result' && !isCorrect) {
+    if (resultTime < 0.6) { robotVisible = false; }
+    else { eyeState = 'dizzy'; mouthState = 'o'; }
+  }
+
+  if (robotVisible) {
+    const rScale = (state === 'through') ? 0.5 : 0.7;
+    drawRobot(robotX, floorY - 120 + robotY, robotAngle, eyeState, mouthState, rScale);
+  }
+
+  // Splash particles
+  splashParticles.forEach(p => {
+    p.x += p.vx; p.y += p.vy; p.vy += 0.2; p.life -= dt;
+    if (p.life <= 0) return;
+    const alpha = Math.max(0, p.life/p.maxLife);
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    const sg = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+    sg.addColorStop(0, `rgba(100,200,255,${alpha})`);
+    sg.addColorStop(1, `rgba(30,120,200,${alpha * 0.5})`);
+    ctx.fillStyle = sg; ctx.fill();
+  });
+  splashParticles = splashParticles.filter(p => p.life > 0);
+
+  // Confetti
+  confetti.forEach(c => {
+    c.x+=c.vx; c.y+=c.vy; c.vy+=0.13; c.vx*=0.995;
+    c.angle+=c.spin; c.life-=dt;
+    if(c.life<=0)return;
+    ctx.save(); ctx.translate(c.x,c.y); ctx.rotate(c.angle*Math.PI/180);
+    ctx.globalAlpha=Math.min(1,c.life*1.5);
+    ctx.fillStyle=c.color;
+    if(c.round){ctx.beginPath();ctx.arc(0,0,c.w/2,0,Math.PI*2);ctx.fill();}
+    else ctx.fillRect(-c.w/2,-c.h/2,c.w,c.h);
+    ctx.globalAlpha=1; ctx.restore();
+  });
+  confetti=confetti.filter(c=>c.life>0);
+
+  // Click texts
+  ctx.textAlign='center';
+  clickTexts.forEach(ct=>{
+    ct.time+=dt;
+    if(ct.time>ct.maxTime+1.2)return;
+    let alpha=1;
+    if(ct.time<0.12)alpha=ct.time/0.12;
+    if(ct.time>ct.maxTime)alpha=Math.max(0,1-(ct.time-ct.maxTime)/1.2);
+    let scale=1;
+    if(ct.time<0.12)scale=0.3+(ct.time/0.12)*0.7;
+    else if(ct.time<0.2)scale=1+(1-(ct.time-0.12)/0.08)*0.15;
+    ctx.save(); ctx.globalAlpha=alpha;
+    ctx.font=`900 ${ct.size*scale}px 'JetBrains Mono',monospace`;
+    ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillText(ct.text,W/2+2,82);
+    ctx.fillStyle=ct.color;
+    ctx.shadowColor='rgba(0,0,0,0.4)'; ctx.shadowBlur=10;
+    ctx.fillText(ct.text,W/2,80);
+    ctx.shadowBlur=0; ctx.globalAlpha=1; ctx.restore();
+  });
+  clickTexts=clickTexts.filter(ct=>ct.time<ct.maxTime+1.2);
+
+  ctx.restore();
+}
+
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'start') startAnimation(e.data.isCorrect);
+  if (e.data?.type === 'reset') resetAll();
+});
+</script>
+</body>
+</html>
