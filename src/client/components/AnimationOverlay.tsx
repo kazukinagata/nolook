@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const ANIMATION_TYPES = ["bomb", "door", "roulette"] as const;
 type AnimationType = (typeof ANIMATION_TYPES)[number];
@@ -12,9 +12,10 @@ const SRC_MAP: Record<AnimationType, string> = {
 interface Props {
   isCorrect: boolean;
   onComplete: () => void;
+  skippable: boolean;
 }
 
-export default function AnimationOverlay({ isCorrect, onComplete }: Props) {
+export default function AnimationOverlay({ isCorrect, onComplete, skippable }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const completedRef = useRef(false);
   const [animType] = useState<AnimationType>(
@@ -32,6 +33,26 @@ export default function AnimationOverlay({ isCorrect, onComplete }: Props) {
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
   }, []);
+
+  const skip = useCallback(() => {
+    if (!completedRef.current) {
+      completedRef.current = true;
+      setFading(true);
+    }
+  }, []);
+
+  // Skip on key press
+  useEffect(() => {
+    if (!skippable) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        skip();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [skippable, skip]);
 
   // Safety timeout in case iframe fails to send completion
   useEffect(() => {
@@ -66,6 +87,11 @@ export default function AnimationOverlay({ isCorrect, onComplete }: Props) {
         onLoad={handleLoad}
         title="Result animation"
       />
+      {skippable && !fading && (
+        <button className="skip-btn" onClick={skip} type="button">
+          Skip <kbd>Enter</kbd>
+        </button>
+      )}
     </div>
   );
 }

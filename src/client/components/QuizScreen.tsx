@@ -20,6 +20,7 @@ interface Props {
   animating: boolean;
   animationCorrect: boolean;
   onAnimationComplete: () => void;
+  skipAnimation: boolean;
   progress: { answered: number; total: number };
   onAnswer: (answer: "approve" | "reject", timedOut?: boolean) => void;
   onNext: () => void;
@@ -33,6 +34,7 @@ export default function QuizScreen({
   animating,
   animationCorrect,
   onAnimationComplete,
+  skipAnimation,
   progress,
   onAnswer,
   onNext,
@@ -181,6 +183,7 @@ export default function QuizScreen({
         <AnimationOverlay
           isCorrect={animationCorrect}
           onComplete={onAnimationComplete}
+          skippable={skipAnimation}
         />
       )}
     </div>

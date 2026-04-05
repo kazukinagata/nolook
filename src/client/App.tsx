@@ -19,6 +19,7 @@ export default function App() {
           animating={game.phase === "animating"}
           animationCorrect={game.feedback?.correct ?? false}
           onAnimationComplete={game.finishAnimation}
+          skipAnimation={game.skipAnimation}
           progress={game.progress}
           onAnswer={game.submitAnswer}
           onNext={game.nextQuestion}

@@ -25,6 +25,7 @@ interface GameState {
   results: GameResults | null;
   loading: boolean;
   submitting: boolean;
+  skipAnimation: boolean;
 }
 
 export function useGame() {
@@ -39,6 +40,7 @@ export function useGame() {
     results: null,
     loading: false,
     submitting: false,
+    skipAnimation: false,
   });
 
   const startGame = useCallback(async (language: Language) => {
@@ -63,6 +65,7 @@ export function useGame() {
         results: null,
         loading: false,
         submitting: false,
+        skipAnimation: false,
       });
     } catch (err) {
       console.error("Failed to start game:", err);
@@ -100,6 +103,7 @@ export function useGame() {
             total: data.progress.total,
           },
           score: data.currentScore,
+          skipAnimation: true,
         }));
       } catch (err) {
         console.error("Failed to submit answer:", err);

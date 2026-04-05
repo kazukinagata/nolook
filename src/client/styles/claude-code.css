@@ -973,7 +973,7 @@ body,
   align-items: center;
   justify-content: center;
   opacity: 1;
-  transition: opacity 500ms ease-out;
+  transition: opacity 200ms ease-out;
 }
 
 .animation-overlay.fading {
@@ -984,4 +984,40 @@ body,
   border: none;
   width: 600px;
   height: 500px;
+}
+
+.animation-overlay .skip-btn {
+  position: absolute;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 14px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 6px 16px;
+  cursor: pointer;
+  animation: skip-hint-fade-in 1s ease-out forwards;
+  opacity: 0;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.animation-overlay .skip-btn:hover {
+  color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.animation-overlay .skip-btn kbd {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-left: 4px;
+  font-size: 12px;
+}
+
+@keyframes skip-hint-fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
 }
