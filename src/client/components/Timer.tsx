@@ -12,7 +12,7 @@ export default function Timer({ duration, onTimeout }: Props) {
   useEffect(() => {
     timer.start();
     return () => timer.stop();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const progress = timer.remaining / duration;
 
