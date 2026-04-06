@@ -24,6 +24,9 @@
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.1"
   },
+  "overrides": {
+    "@anthropic-ai/sdk": "0.82.0"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@testing-library/jest-dom": "^6.9.1",
