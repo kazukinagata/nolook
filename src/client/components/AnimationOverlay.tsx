@@ -25,6 +25,7 @@ export default function AnimationOverlay({ isCorrect, onComplete, skippable }: P
 
   useEffect(() => {
     const handler = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
       if (e.data?.type === "animationComplete" && !completedRef.current) {
         completedRef.current = true;
         setFading(true);
@@ -68,7 +69,7 @@ export default function AnimationOverlay({ isCorrect, onComplete, skippable }: P
   const handleLoad = () => {
     iframeRef.current?.contentWindow?.postMessage(
       { type: "start", isCorrect },
-      "*"
+      window.location.origin
     );
   };
 

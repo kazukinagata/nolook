@@ -48,4 +48,11 @@ export interface GameResults {
   avgDifficulty: number;
 }
 
+export interface FeedbackData {
+  correct: boolean;
+  correctAnswer: "approve" | "reject";
+  explanation: string;
+  timedOut?: boolean;
+}
+
 export type GamePhase = "start" | "playing" | "animating" | "feedback" | "results";

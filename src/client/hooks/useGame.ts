@@ -5,14 +5,8 @@ import type {
   Question,
   AnswerResult,
   GameResults,
+  FeedbackData,
 } from "../types";
-
-interface FeedbackData {
-  correct: boolean;
-  correctAnswer: "approve" | "reject";
-  explanation: string;
-  timedOut?: boolean;
-}
 
 interface GameState {
   phase: GamePhase;

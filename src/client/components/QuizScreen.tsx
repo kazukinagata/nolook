@@ -1,18 +1,11 @@
 import { useEffect, useCallback, useRef } from "react";
 import ReactMarkdown from "react-markdown";
-import type { Question } from "../types";
+import type { Question, FeedbackData } from "../types";
 import ConversationView from "./ConversationView";
 import ToolConfirmation from "./ToolConfirmation";
 import Timer from "./Timer";
 import ProgressBar from "./ProgressBar";
 import AnimationOverlay from "./AnimationOverlay";
-
-interface FeedbackData {
-  correct: boolean;
-  correctAnswer: "approve" | "reject";
-  explanation: string;
-  timedOut?: boolean;
-}
 
 interface Props {
   question: Question;
