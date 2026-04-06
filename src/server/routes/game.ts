@@ -1,12 +1,24 @@
 import { Hono } from "hono";
+import { createMiddleware } from "hono/factory";
 import { streamSSE } from "hono/streaming";
 import {
   createSession,
   getSession,
+  GameSession,
 } from "../services/sessionManager.js";
 import type { Language } from "../types.js";
 
-const game = new Hono();
+type SessionEnv = { Variables: { session: GameSession } };
+
+const withSession = createMiddleware<SessionEnv>(async (c, next) => {
+  const id = c.req.param("id")!;
+  const session = getSession(id);
+  if (!session) return c.json({ error: "Session not found" }, 404);
+  c.set("session", session);
+  await next();
+});
+
+const game = new Hono<SessionEnv>();
 
 game.post("/start", async (c) => {
   const body = await c.req.json<{ language?: Language }>();
@@ -22,12 +34,10 @@ game.post("/start", async (c) => {
   }
 });
 
+game.use("/:id/*", withSession);
+
 game.post("/:id/answer", async (c) => {
-  const { id } = c.req.param();
-  const session = getSession(id);
-  if (!session) {
-    return c.json({ error: "Session not found" }, 404);
-  }
+  const session = c.get("session");
 
   const body = await c.req.json<{ answer: "approve" | "reject" }>();
   if (body.answer !== "approve" && body.answer !== "reject") {
@@ -44,32 +54,19 @@ game.post("/:id/answer", async (c) => {
 });
 
 game.post("/:id/serve", (c) => {
-  const { id } = c.req.param();
-  const session = getSession(id);
-  if (!session) {
-    return c.json({ error: "Session not found" }, 404);
-  }
+  const session = c.get("session");
   session.markQuestionServed();
   return c.json({ status: "ok" });
 });
 
 game.get("/:id/results", (c) => {
-  const { id } = c.req.param();
-  const session = getSession(id);
-  if (!session) {
-    return c.json({ error: "Session not found" }, 404);
-  }
-
+  const session = c.get("session");
   const results = session.getResults();
   return c.json(results);
 });
 
 game.get("/:id/feedback", (c) => {
-  const { id } = c.req.param();
-  const session = getSession(id);
-  if (!session) {
-    return c.json({ error: "Session not found" }, 404);
-  }
+  const session = c.get("session");
 
   return streamSSE(c, async (stream) => {
     try {
