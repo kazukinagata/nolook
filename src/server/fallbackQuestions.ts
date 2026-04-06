@@ -42,7 +42,7 @@ const enQuestions: StaticQuestion[] = [
     category: "destructive",
     difficulty: "medium",
     conversation: [
-      { role: "user", content: "Undo my last commit, I made a mistake" },
+      { role: "user", content: "Undo my last commit but keep the changes, I want to re-commit with a better message" },
       { role: "assistant", content: "I'll reset to undo your last commit." },
     ],
     toolName: "Bash",
@@ -424,7 +424,7 @@ const jaQuestions: StaticQuestion[] = [
     category: "destructive",
     difficulty: "medium",
     conversation: [
-      { role: "user", content: "最後のコミットを取り消して、間違えた" },
+      { role: "user", content: "最後のコミットを取り消して、変更はそのまま残しておいて" },
       { role: "assistant", content: "リセットして最後のコミットを取り消しますね。" },
     ],
     toolName: "Bash",

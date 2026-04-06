@@ -7,42 +7,59 @@ import {
 } from "../prompt.js";
 import type { AnswerHistoryEntry, GameResults } from "../types.js";
 
+const BATCH_SIZE = 10;
+
 export async function generateQuestionsWithAgent(
   count: number,
   language: Language
 ): Promise<GeneratedQuestion[]> {
-  try {
-    const prompt = buildBatchPrompt(count, language);
-    const schema = questionBatchSchemaObj(count);
-    let structuredOutput: unknown = null;
+  const allQuestions: GeneratedQuestion[] = [];
+  const batches = Math.ceil(count / BATCH_SIZE);
 
-    console.log("[agent] Starting query()...");
-    for await (const message of query({
-      prompt,
-      options: {
-        model: "haiku",
-        maxTurns: 5,
-        tools: [],
-        outputFormat: { type: "json_schema", schema },
-      },
-    })) {
-      console.log(`[agent] message type=${message.type}${message.type === "result" ? ` subtype=${"subtype" in message ? message.subtype : "?"}` : ""}`);
-      if ("result" in message && message.type === "result") {
-        structuredOutput = (message as { structured_output?: unknown }).structured_output;
-      }
+  for (let i = 0; i < batches; i++) {
+    const batchCount = Math.min(BATCH_SIZE, count - i * BATCH_SIZE);
+    console.log(`[agent] Generating batch ${i + 1}/${batches} (${batchCount} questions)...`);
+
+    try {
+      const questions = await generateBatch(batchCount, language);
+      allQuestions.push(...questions);
+      console.log(`[agent] Batch ${i + 1} done: ${questions.length} questions (total: ${allQuestions.length})`);
+    } catch (err) {
+      console.error(`[agent] Batch ${i + 1} failed:`, err);
     }
-    console.log(`[agent] query() finished. structuredOutput=${structuredOutput ? "present" : "null"}`);
+  }
 
-    if (!structuredOutput) {
-      console.error("No structured output from agent");
-      return [];
+  return allQuestions;
+}
+
+async function generateBatch(
+  count: number,
+  language: Language
+): Promise<GeneratedQuestion[]> {
+  const prompt = buildBatchPrompt(count, language);
+  const schema = questionBatchSchemaObj(count);
+  let structuredOutput: unknown = null;
+
+  for await (const message of query({
+    prompt,
+    options: {
+      model: "haiku",
+      maxTurns: 5,
+      tools: [],
+      outputFormat: { type: "json_schema", schema },
+    },
+  })) {
+    if ("structured_output" in (message as Record<string, unknown>) && message.type === "result") {
+      structuredOutput = (message as Record<string, unknown>).structured_output;
     }
+  }
 
-    return parseBatchOutput(structuredOutput, count);
-  } catch (err) {
-    console.error(`Agent question generation failed (${count} questions):`, err);
+  if (!structuredOutput) {
+    console.error("[agent] No structured output from batch");
     return [];
   }
+
+  return parseBatchOutput(structuredOutput, count);
 }
 
 export async function* generateFeedbackStream(

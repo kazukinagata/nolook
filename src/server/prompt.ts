@@ -135,7 +135,6 @@ export const questionBatchSchemaObj = (count: number) => ({
       type: "array",
       items: singleQuestionSchemaObj,
       minItems: count,
-      maxItems: count,
     },
   },
   required: ["questions"],
