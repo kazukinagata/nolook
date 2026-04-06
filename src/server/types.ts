@@ -7,7 +7,7 @@ export type Category =
 
 export type Difficulty = "easy" | "medium" | "hard";
 
-export type Language = "en" | "ja" | "ko" | "zh";
+export type Language = "en" | "ja";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -61,6 +61,19 @@ export interface GeneratedQuestion {
   toolParams: Record<string, unknown>;
   correctAnswer: "approve" | "reject";
   explanation: string;
+  category?: Category;
+  difficulty?: Difficulty;
+}
+
+export interface AnswerHistoryEntry {
+  category: Category;
+  difficulty: Difficulty;
+  correct: boolean;
+  userAnswer: "approve" | "reject";
+  correctAnswer: "approve" | "reject";
+  toolName: string;
+  toolParams: Record<string, unknown>;
+  conversationSummary: string;
 }
 
 export const CATEGORIES: Category[] = [
@@ -79,6 +92,6 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   safe: "Safe Operations",
 };
 
-export const TOTAL_QUESTIONS = 50;
+export const TOTAL_QUESTIONS = 30;
 export const TIME_LIMIT_MS = 60_000;
 export const GRACE_PERIOD_MS = 2_000;

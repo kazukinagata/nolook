@@ -13,6 +13,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.92",
     "@hono/node-server": "^1.19.12",
     "hono": "^4.12.9",
     "react": "^19.2.4",

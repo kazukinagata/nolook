@@ -31,6 +31,8 @@ export default function App() {
       return (
         <ResultScreen
           results={game.results!}
+          feedbackText={game.feedbackText}
+          feedbackLoading={game.feedbackLoading}
           onRestart={() => window.location.reload()}
         />
       );

@@ -49,20 +49,8 @@ export class Scorer {
     const overallAccuracy =
       totalQuestions > 0 ? totalCorrect / totalQuestions : 0;
 
-    // Average difficulty
-    const avgDifficulty =
-      this.answers.length > 0
-        ? this.answers.reduce(
-            (sum, a) => sum + difficultyValue(a.difficulty),
-            0
-          ) / this.answers.length
-        : 1;
-
-    // Weighted score considering difficulty
-    const difficultyMultiplier = 1 + avgDifficulty * 0.25;
-    const weightedScore = overallAccuracy * difficultyMultiplier;
-
-    const rank = calculateRank(weightedScore);
+    // Simple score — no difficulty weighting
+    const rank = calculateRank(overallAccuracy);
 
     const radarData = CATEGORIES.map((cat) => {
       const s = categoryScores[cat];
@@ -85,8 +73,17 @@ export class Scorer {
       };
     }
 
+    // avgDifficulty kept as reference info
+    const avgDifficulty =
+      this.answers.length > 0
+        ? this.answers.reduce(
+            (sum, a) => sum + difficultyValue(a.difficulty),
+            0
+          ) / this.answers.length
+        : 1;
+
     return {
-      score: Math.min(Math.round(weightedScore * 100), 100),
+      score: Math.round(overallAccuracy * 100),
       rank,
       radarData,
       categoryBreakdown,
@@ -97,12 +94,12 @@ export class Scorer {
   }
 }
 
-function calculateRank(weightedScore: number): string {
-  if (weightedScore >= 0.95) return "Master";
-  if (weightedScore >= 0.85) return "Expert";
-  if (weightedScore >= 0.7) return "Senior";
-  if (weightedScore >= 0.55) return "Middle";
-  if (weightedScore >= 0.4) return "Rookie";
+function calculateRank(accuracy: number): string {
+  if (accuracy >= 0.95) return "Master";
+  if (accuracy >= 0.85) return "Expert";
+  if (accuracy >= 0.7) return "Senior";
+  if (accuracy >= 0.55) return "Middle";
+  if (accuracy >= 0.4) return "Rookie";
   return "Beginner";
 }
 

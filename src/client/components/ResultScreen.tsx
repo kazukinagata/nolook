@@ -6,10 +6,13 @@ import {
   Radar,
   ResponsiveContainer,
 } from "recharts";
+import ReactMarkdown from "react-markdown";
 import type { GameResults } from "../types";
 
 interface Props {
   results: GameResults;
+  feedbackText: string;
+  feedbackLoading: boolean;
   onRestart: () => void;
 }
 
@@ -37,7 +40,7 @@ const rankDescriptions: Record<string, string> = {
     "Just starting out. Every mistake is a learning opportunity!",
 };
 
-export default function ResultScreen({ results, onRestart }: Props) {
+export default function ResultScreen({ results, feedbackText, feedbackLoading, onRestart }: Props) {
   const rankColor = rankColors[results.rank] || "#94a3b8";
 
   return (
@@ -64,7 +67,7 @@ export default function ResultScreen({ results, onRestart }: Props) {
           </div>
           <div className="score-stat">
             <span className="stat-value">{results.score}%</span>
-            <span className="stat-label">weighted score</span>
+            <span className="stat-label">score</span>
           </div>
         </div>
 
@@ -130,6 +133,20 @@ export default function ResultScreen({ results, onRestart }: Props) {
               </div>
             );
           })}
+        </div>
+
+        <div className="feedback-section">
+          <h2>AI Feedback</h2>
+          {feedbackText ? (
+            <div className="feedback-content">
+              <ReactMarkdown>{feedbackText}</ReactMarkdown>
+            </div>
+          ) : feedbackLoading ? (
+            <div className="feedback-loading">
+              <span className="spinner" />
+              <span>Generating personalized feedback...</span>
+            </div>
+          ) : null}
         </div>
 
         <button className="restart-btn" onClick={onRestart}>

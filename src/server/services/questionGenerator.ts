@@ -1,202 +1,83 @@
-import { spawn } from "child_process";
-import type {
-  Category,
-  Difficulty,
-  Language,
-  GeneratedQuestion,
-} from "../types.js";
-import { buildPrompt, buildBatchPrompt, questionJsonSchema, questionBatchJsonSchema } from "../prompt.js";
-import { getNextFallback } from "../fallbackQuestions.js";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { Language, GeneratedQuestion } from "../types.js";
+import {
+  buildBatchPrompt,
+  buildFeedbackPrompt,
+  questionBatchSchemaObj,
+} from "../prompt.js";
+import type { AnswerHistoryEntry, GameResults } from "../types.js";
 
-const SINGLE_TIMEOUT_MS = 45_000;
-const BATCH_TIMEOUT_MS = 180_000;
-
-export async function generateQuestion(
-  category: Category,
-  difficulty: Difficulty,
-  language: Language
-): Promise<GeneratedQuestion> {
-  try {
-    const prompt = buildPrompt(category, difficulty, language);
-    const result = await callClaude(prompt, questionJsonSchema, SINGLE_TIMEOUT_MS);
-    return parseClaudeOutput(result);
-  } catch (err) {
-    console.error(
-      `Question generation failed (${category}/${difficulty}):`,
-      err
-    );
-    const fb = getNextFallback(category, difficulty);
-    return {
-      conversation: fb.conversation,
-      toolName: fb.toolName,
-      toolParams: fb.toolParams,
-      correctAnswer: fb.correctAnswer,
-      explanation: fb.explanation,
-    };
-  }
-}
-
-export async function generateQuestionBatch(
-  specs: Array<{ category: Category; difficulty: Difficulty }>,
+export async function generateQuestionsWithAgent(
+  count: number,
   language: Language
 ): Promise<GeneratedQuestion[]> {
   try {
-    const prompt = buildBatchPrompt(specs, language);
-    const schema = questionBatchJsonSchema(specs.length);
-    const result = await callClaude(prompt, schema, BATCH_TIMEOUT_MS);
-    const parsed = parseBatchClaudeOutput(result, specs.length);
-    return parsed;
-  } catch (err) {
-    console.error(
-      `Batch question generation failed (${specs.length} questions):`,
-      err
-    );
-    // Fall back to individual fallback questions
-    return specs.map((s) => {
-      const fb = getNextFallback(s.category, s.difficulty);
-      return {
-        conversation: fb.conversation,
-        toolName: fb.toolName,
-        toolParams: fb.toolParams,
-        correctAnswer: fb.correctAnswer,
-        explanation: fb.explanation,
-      };
-    });
-  }
-}
+    const prompt = buildBatchPrompt(count, language);
+    const schema = questionBatchSchemaObj(count);
+    let structuredOutput: unknown = null;
 
-function callClaude(prompt: string, schema: string, timeoutMs: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const args = [
-      "-p",
-      "--model",
-      "haiku",
-      "--output-format",
-      "json",
-      "--no-session-persistence",
-      "--disable-slash-commands",
-      "--effort",
-      "low",
-      "--json-schema",
-      schema,
+    console.log("[agent] Starting query()...");
+    for await (const message of query({
       prompt,
-    ];
-
-    const proc = spawn("claude", args, {
-      timeout: timeoutMs,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    proc.stdout.on("data", (data: Buffer) => {
-      stdout += data.toString();
-    });
-
-    proc.stderr.on("data", (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    proc.on("close", (code) => {
-      if (code === 0 || stdout.trim()) {
-        resolve(stdout);
-      } else {
-        reject(
-          new Error(
-            `claude exited with code ${code}: ${stderr || "no output"}`
-          )
-        );
+      options: {
+        model: "haiku",
+        maxTurns: 1,
+        tools: [],
+        outputFormat: { type: "json_schema", schema },
+      },
+    })) {
+      console.log(`[agent] message type=${message.type}${message.type === "result" ? ` subtype=${"subtype" in message ? message.subtype : "?"}` : ""}`);
+      if ("result" in message && message.type === "result") {
+        structuredOutput = (message as { structured_output?: unknown }).structured_output;
       }
-    });
+    }
+    console.log(`[agent] query() finished. structuredOutput=${structuredOutput ? "present" : "null"}`);
 
-    proc.on("error", (err) => {
-      reject(new Error(`Failed to spawn claude: ${err.message}`));
-    });
+    if (!structuredOutput) {
+      console.error("No structured output from agent");
+      return [];
+    }
 
-    // Kill if timeout
-    setTimeout(() => {
-      proc.kill("SIGTERM");
-      reject(new Error("claude -p timed out"));
-    }, timeoutMs);
-  });
+    return parseBatchOutput(structuredOutput, count);
+  } catch (err) {
+    console.error(`Agent question generation failed (${count} questions):`, err);
+    return [];
+  }
 }
 
-function extractStructuredOutput(raw: string): unknown {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    // Try stripping markdown fences
-    const stripped = raw
-      .replace(/^```json?\n?/m, "")
-      .replace(/\n?```$/m, "");
-    parsed = JSON.parse(stripped);
-  }
+export async function* generateFeedbackStream(
+  answerHistory: AnswerHistoryEntry[],
+  results: GameResults,
+  language: Language
+): AsyncGenerator<string> {
+  const prompt = buildFeedbackPrompt(answerHistory, results, language);
 
-  // If claude wraps in { result: "...", is_error: true }, check for errors
-  if (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    "is_error" in parsed &&
-    (parsed as { is_error: boolean }).is_error
-  ) {
-    const msg =
-      (parsed as { result?: string }).result || "Unknown claude error";
-    throw new Error(`claude returned error: ${msg}`);
-  }
-
-  // Extract question data from claude's response wrapper
-  if (typeof parsed === "object" && parsed !== null) {
-    const wrapper = parsed as Record<string, unknown>;
-    // --json-schema puts structured data in structured_output
-    if ("structured_output" in wrapper && wrapper.structured_output) {
-      return wrapper.structured_output;
-    } else if ("result" in wrapper) {
-      const inner = wrapper.result;
-      if (typeof inner === "string") {
-        return JSON.parse(inner);
-      } else {
-        return inner;
+  for await (const message of query({
+    prompt,
+    options: {
+      model: "haiku",
+      maxTurns: 1,
+      tools: [],
+    },
+  })) {
+    if (message.type === "stream_event") {
+      const event = (message as { event: { type: string; delta?: { type: string; text?: string } } }).event;
+      if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
+        yield event.delta.text;
       }
     }
   }
-
-  return parsed;
 }
 
-function parseClaudeOutput(raw: string): GeneratedQuestion {
-  const q = extractStructuredOutput(raw) as GeneratedQuestion;
+function parseBatchOutput(data: unknown, _expectedCount: number): GeneratedQuestion[] {
+  const obj = data as { questions?: GeneratedQuestion[] };
+  const questions = obj.questions || (Array.isArray(data) ? (data as GeneratedQuestion[]) : null);
 
-  // Validate required fields
-  if (
-    !q.conversation ||
-    !q.toolName ||
-    !q.toolParams ||
-    !q.correctAnswer ||
-    !q.explanation
-  ) {
-    throw new Error("Missing required fields in generated question");
-  }
-
-  if (q.correctAnswer !== "approve" && q.correctAnswer !== "reject") {
-    throw new Error(
-      `Invalid correctAnswer: ${q.correctAnswer}`
-    );
-  }
-
-  return q;
-}
-
-function parseBatchClaudeOutput(raw: string, _expectedCount: number): GeneratedQuestion[] {
-  const data = extractStructuredOutput(raw) as { questions?: GeneratedQuestion[] };
-
-  const questions = data.questions || (Array.isArray(data) ? data as GeneratedQuestion[] : null);
   if (!questions || !Array.isArray(questions)) {
-    throw new Error("Batch output missing 'questions' array");
+    console.error("Batch output missing 'questions' array");
+    return [];
   }
 
-  // Validate each question
   const validated: GeneratedQuestion[] = [];
   for (const q of questions) {
     if (
@@ -214,10 +95,6 @@ function parseBatchClaudeOutput(raw: string, _expectedCount: number): GeneratedQ
       continue;
     }
     validated.push(q);
-  }
-
-  if (validated.length === 0) {
-    throw new Error("No valid questions in batch output");
   }
 
   return validated;

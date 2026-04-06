@@ -5,7 +5,7 @@ export type Category =
   | "data_modification"
   | "safe";
 
-export type Language = "en" | "ja" | "ko" | "zh";
+export type Language = "en" | "ja";
 
 export interface ChatMessage {
   role: "user" | "assistant";

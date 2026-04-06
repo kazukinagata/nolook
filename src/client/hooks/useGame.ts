@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import type {
   GamePhase,
   Language,
@@ -26,6 +26,8 @@ interface GameState {
   loading: boolean;
   submitting: boolean;
   skipAnimation: boolean;
+  feedbackText: string;
+  feedbackLoading: boolean;
 }
 
 export function useGame() {
@@ -35,15 +37,61 @@ export function useGame() {
     question: null,
     feedback: null,
     nextQuestionCache: null,
-    progress: { answered: 0, total: 50 },
+    progress: { answered: 0, total: 30 },
     score: 0,
     results: null,
     loading: false,
     submitting: false,
     skipAnimation: false,
+    feedbackText: "",
+    feedbackLoading: false,
   });
 
+  const feedbackAbortRef = useRef<AbortController | null>(null);
+
+  const fetchFeedback = useCallback((gameId: string) => {
+    // Abort any previous feedback stream
+    feedbackAbortRef.current?.abort();
+    const controller = new AbortController();
+    feedbackAbortRef.current = controller;
+
+    setState((s) => ({ ...s, feedbackLoading: true, feedbackText: "" }));
+
+    const eventSource = new EventSource(`/api/game/${gameId}/feedback`);
+
+    eventSource.onmessage = (event) => {
+      setState((s) => ({
+        ...s,
+        feedbackText: s.feedbackText + event.data,
+      }));
+    };
+
+    eventSource.addEventListener("done", () => {
+      eventSource.close();
+      setState((s) => ({ ...s, feedbackLoading: false }));
+    });
+
+    eventSource.addEventListener("error", () => {
+      eventSource.close();
+      setState((s) => ({ ...s, feedbackLoading: false }));
+    });
+
+    eventSource.onerror = () => {
+      eventSource.close();
+      setState((s) => ({ ...s, feedbackLoading: false }));
+    };
+
+    // Cleanup on abort
+    controller.signal.addEventListener("abort", () => {
+      eventSource.close();
+    });
+  }, []);
+
+  const startingRef = useRef(false);
+
   const startGame = useCallback(async (language: Language) => {
+    if (startingRef.current) return;
+    startingRef.current = true;
     setState((s) => ({ ...s, loading: true }));
 
     try {
@@ -60,12 +108,14 @@ export function useGame() {
         question: data.question,
         feedback: null,
         nextQuestionCache: null,
-        progress: { answered: 0, total: 50 },
+        progress: { answered: 0, total: 30 },
         score: 0,
         results: null,
         loading: false,
         submitting: false,
         skipAnimation: false,
+        feedbackText: "",
+        feedbackLoading: false,
       });
     } catch (err) {
       console.error("Failed to start game:", err);
@@ -143,11 +193,13 @@ export function useGame() {
           phase: "results",
           results,
         }));
+        // Start feedback stream
+        fetchFeedback(state.gameId);
       } catch (err) {
         console.error("Failed to fetch results:", err);
       }
     }
-  }, [state.nextQuestionCache, state.gameId]);
+  }, [state.nextQuestionCache, state.gameId, fetchFeedback]);
 
   return {
     ...state,
