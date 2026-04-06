@@ -12,8 +12,15 @@ NoLook — a quiz game challenging vibe coders to prove they read Claude Code to
 - `npm run dev:server` — Hono server only via tsx watch
 - `npm run dev:client` — Vite dev server only
 - `npm run build` — builds client to `dist/client`
+- `npm test` — runs vitest (server + client tests)
+- `npm run test:watch` — runs vitest in watch mode
 
-No test suite exists.
+## Testing
+
+Vitest with workspace config — server tests run in `node` environment, client tests in `jsdom`.
+
+- **Server tests**: pure logic tests for `Scorer` and `MemoryStorage`
+- **Client tests**: hook tests (`useTimer`) + component tests (`ProgressBar`, `ConversationView`, `ToolConfirmation`, `StartScreen`)
 
 ## Architecture
 
@@ -52,9 +59,18 @@ Three self-contained HTML+Canvas pages in `public/prototypes/` (bomb, door, roul
 
 Single `useGame` hook manages all game state. Phases: `start` → `playing` → `animating` → `feedback` → (loop or `results`). Next question is cached in state from the answer response for instant transition.
 
+### Key Files
+
+- `src/server/config.ts` — centralized server constants (model, batch size, session expiry, etc.)
+- `src/client/config.ts` — centralized client constants (animation timeout, delays)
+- `src/server/data/questions-en.ts` and `questions-ja.ts` — static question pools split by language
+
 ## Conventions
 
 - Server imports use `.js` extensions (Node ESM resolution)
 - Question tool types are limited to Bash, Write, Edit (never Read/Glob/Grep)
 - All prompts and explanations support both English and Japanese via `Language` type
 - Styling follows GitHub Dark theme (`claude-code.css`)
+- Avoid `as` type casts — use type guards and `in` checks instead
+- Session validation is handled by Hono middleware (`withSession`) — route handlers access session via `c.get("session")`
+- Magic numbers go in `config.ts` files, not inline

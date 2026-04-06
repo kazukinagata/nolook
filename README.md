@@ -54,17 +54,41 @@ React 19 · Hono · Claude Agent SDK · Recharts · Vite · TypeScript
 
 Requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with OAuth login — no API key needed.
 
+## Development
+
 ```bash
 npm install
-npm run dev
+npm run dev        # Server (3001) + Client (5173)
+npm test           # Run all tests
+npm run test:watch # Watch mode
+npm run build      # Production build
 ```
 
-Client runs on port 5173, server on port 3001. Vite proxies `/api` requests to the server.
+Client runs on port 5173, server on port 3001. Vite proxies `/api` requests to the server. Production build outputs to `dist/client` — the Hono server serves both the API and static files.
 
-## Production Build
+## Project Structure
 
-```bash
-npm run build
+```
+src/
+├── client/           # React frontend
+│   ├── components/   # UI components
+│   ├── hooks/        # Custom React hooks
+│   ├── styles/       # CSS
+│   ├── config.ts     # Client constants
+│   └── types.ts      # Shared client types
+└── server/           # Hono backend
+    ├── routes/       # API endpoints
+    ├── services/     # Business logic
+    ├── data/         # Static question pools (EN/JA)
+    ├── config.ts     # Server constants
+    ├── prompt.ts     # LLM prompts
+    └── types.ts      # Server types
 ```
 
-Outputs to `dist/client`. The Hono server serves both the API and static files.
+## Contributing
+
+- TypeScript strict mode, no `as` casts
+- Server imports use `.js` extensions (Node ESM)
+- Constants in `config.ts`, not inline
+- Run `npm test` before submitting PRs
+- To add a new language: create `src/server/data/questions-{lang}.ts` and register in `fallbackQuestions.ts`
