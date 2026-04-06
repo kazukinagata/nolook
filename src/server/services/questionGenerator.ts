@@ -9,6 +9,33 @@ import type { AnswerHistoryEntry, GameResults } from "../types.js";
 
 const BATCH_SIZE = 25;
 
+function isStructuredResult(
+  msg: unknown
+): msg is { type: "result"; structured_output: unknown } {
+  return (
+    typeof msg === "object" &&
+    msg !== null &&
+    "type" in msg &&
+    (msg as { type: unknown }).type === "result" &&
+    "structured_output" in msg
+  );
+}
+
+function isStreamEvent(
+  msg: unknown
+): msg is {
+  type: "stream_event";
+  event: { type: string; delta?: { type: string; text?: string } };
+} {
+  return (
+    typeof msg === "object" &&
+    msg !== null &&
+    "type" in msg &&
+    (msg as { type: unknown }).type === "stream_event" &&
+    "event" in msg
+  );
+}
+
 interface GenerateOptions {
   onBatch?: (questions: GeneratedQuestion[]) => void;
   getExistingSummaries?: () => string[];
@@ -62,8 +89,8 @@ async function generateBatch(
       outputFormat: { type: "json_schema", schema },
     },
   })) {
-    if ("structured_output" in (message as Record<string, unknown>) && message.type === "result") {
-      structuredOutput = (message as Record<string, unknown>).structured_output;
+    if (isStructuredResult(message)) {
+      structuredOutput = message.structured_output;
     }
   }
 
@@ -90,8 +117,8 @@ export async function* generateFeedbackStream(
       tools: [],
     },
   })) {
-    if (message.type === "stream_event") {
-      const event = (message as { event: { type: string; delta?: { type: string; text?: string } } }).event;
+    if (isStreamEvent(message)) {
+      const { event } = message;
       if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
         yield event.delta.text;
       }
@@ -100,8 +127,17 @@ export async function* generateFeedbackStream(
 }
 
 function parseBatchOutput(data: unknown, _expectedCount: number): GeneratedQuestion[] {
-  const obj = data as { questions?: GeneratedQuestion[] };
-  const questions = obj.questions || (Array.isArray(data) ? (data as GeneratedQuestion[]) : null);
+  if (typeof data !== "object" || data === null) {
+    console.error("Batch output is not an object");
+    return [];
+  }
+  const record = data as Record<string, unknown>;
+  const questions =
+    "questions" in data && Array.isArray(record.questions)
+      ? record.questions
+      : Array.isArray(data)
+        ? data
+        : null;
 
   if (!questions || !Array.isArray(questions)) {
     console.error("Batch output missing 'questions' array");

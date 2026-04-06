@@ -33,10 +33,19 @@ export class MemoryStorage {
   /** Returns summaries of all known questions (served + queued) for dedup */
   getExistingCommandSummaries(): string[] {
     return [...this.served, ...this.queue].map((q) => {
+      const params = q.toolParams;
       if (q.toolName === "Bash") {
-        return `Bash: ${(q.toolParams as { command?: string }).command || ""}`;
+        const cmd =
+          "command" in params && typeof params.command === "string"
+            ? params.command
+            : "";
+        return `Bash: ${cmd}`;
       }
-      return `${q.toolName}: ${(q.toolParams as { file_path?: string }).file_path || ""}`;
+      const fp =
+        "file_path" in params && typeof params.file_path === "string"
+          ? params.file_path
+          : "";
+      return `${q.toolName}: ${fp}`;
     });
   }
 }

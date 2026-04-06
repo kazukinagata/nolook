@@ -28,17 +28,18 @@ export class Scorer {
     Category,
     { correct: number; total: number }
   > {
-    const scores = {} as Record<
-      Category,
-      { correct: number; total: number }
-    >;
-    for (const cat of CATEGORIES) {
-      const catAnswers = this.answers.filter((a) => a.category === cat);
-      scores[cat] = {
-        correct: catAnswers.filter((a) => a.correct).length,
-        total: catAnswers.length,
-      };
-    }
+    const scores = Object.fromEntries(
+      CATEGORIES.map((cat) => {
+        const catAnswers = this.answers.filter((a) => a.category === cat);
+        return [
+          cat,
+          {
+            correct: catAnswers.filter((a) => a.correct).length,
+            total: catAnswers.length,
+          },
+        ];
+      })
+    ) as Record<Category, { correct: number; total: number }>;
     return scores;
   }
 
@@ -61,17 +62,19 @@ export class Scorer {
       };
     });
 
-    const categoryBreakdown = {} as Record<
-      Category,
-      { correct: number; total: number; accuracy: number }
-    >;
-    for (const cat of CATEGORIES) {
-      const s = categoryScores[cat];
-      categoryBreakdown[cat] = {
-        ...s,
-        accuracy: s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0,
-      };
-    }
+    const categoryBreakdown = Object.fromEntries(
+      CATEGORIES.map((cat) => {
+        const s = categoryScores[cat];
+        return [
+          cat,
+          {
+            ...s,
+            accuracy:
+              s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0,
+          },
+        ];
+      })
+    ) as Record<Category, { correct: number; total: number; accuracy: number }>;
 
     // avgDifficulty kept as reference info
     const avgDifficulty =
