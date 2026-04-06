@@ -6,8 +6,7 @@ import {
   questionBatchSchemaObj,
 } from "../prompt.js";
 import type { AnswerHistoryEntry, GameResults } from "../types.js";
-
-const BATCH_SIZE = 25;
+import { BATCH_SIZE, MODEL, MAX_TURNS_GENERATE, MAX_TURNS_FEEDBACK } from "../config.js";
 
 function isStructuredResult(
   msg: unknown
@@ -83,8 +82,8 @@ async function generateBatch(
   for await (const message of query({
     prompt,
     options: {
-      model: "haiku",
-      maxTurns: 5,
+      model: MODEL,
+      maxTurns: MAX_TURNS_GENERATE,
       tools: [],
       outputFormat: { type: "json_schema", schema },
     },
@@ -112,8 +111,8 @@ export async function* generateFeedbackStream(
   for await (const message of query({
     prompt,
     options: {
-      model: "haiku",
-      maxTurns: 3,
+      model: MODEL,
+      maxTurns: MAX_TURNS_FEEDBACK,
       tools: [],
     },
   })) {

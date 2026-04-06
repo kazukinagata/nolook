@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ANIMATION_SAFETY_TIMEOUT_MS } from "../config";
 
 const ANIMATION_TYPES = ["bomb", "door", "roulette"] as const;
 type AnimationType = (typeof ANIMATION_TYPES)[number];
@@ -62,7 +63,7 @@ export default function AnimationOverlay({ isCorrect, onComplete, skippable }: P
         completedRef.current = true;
         setFading(true);
       }
-    }, 12000);
+    }, ANIMATION_SAFETY_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, []);
 

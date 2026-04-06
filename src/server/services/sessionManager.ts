@@ -11,6 +11,7 @@ import { Scorer } from "./scorer.js";
 import { MemoryStorage } from "./memoryStorage.js";
 import { getStaticQuestions } from "../fallbackQuestions.js";
 import { generateQuestionsWithAgent, generateFeedbackStream } from "./questionGenerator.js";
+import { QUESTIONS_TO_GENERATE, SESSION_EXPIRY_MS, CLEANUP_INTERVAL_MS } from "../config.js";
 
 export class GameSession {
   readonly id: string;
@@ -45,8 +46,8 @@ export class GameSession {
   private async generateAdditionalQuestions(): Promise<void> {
     try {
       let addedCount = 0;
-      console.log(`[${this.id}] Starting background generation of 50 questions (${this.language})...`);
-      await generateQuestionsWithAgent(50, this.language, {
+      console.log(`[${this.id}] Starting background generation of ${QUESTIONS_TO_GENERATE} questions (${this.language})...`);
+      await generateQuestionsWithAgent(QUESTIONS_TO_GENERATE, this.language, {
         getExistingSummaries: () => this.storage.getExistingCommandSummaries(),
         onBatch: (batch) => {
           const questions: QuestionWithAnswer[] = batch.map((g, i) => ({
@@ -151,7 +152,7 @@ export class GameSession {
   }
 
   isExpired(): boolean {
-    return Date.now() - this.lastActivity > 10 * 60 * 1000;
+    return Date.now() - this.lastActivity > SESSION_EXPIRY_MS;
   }
 
   get answered(): number {
@@ -180,4 +181,4 @@ setInterval(() => {
       sessions.delete(id);
     }
   }
-}, 5 * 60 * 1000);
+}, CLEANUP_INTERVAL_MS);
