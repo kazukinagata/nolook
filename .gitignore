@@ -2,6 +2,7 @@ node_modules
 dist
 .vite
 *.png
+!docs/screenshot.png
 test-screenshots/
 .playwright-cli/
 *.yml
