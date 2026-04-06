@@ -813,6 +813,13 @@ window.addEventListener('message', (e) => {
   if (e.data?.type === 'start') startAnimation(e.data.isCorrect);
   if (e.data?.type === 'reset') resetAll();
 });
+
+if (window === window.parent) {
+  const div = document.createElement('div');
+  div.className = 'controls';
+  div.innerHTML = '<button class="correct-btn" onclick="startAnimation(true)">Correct</button><button class="incorrect-btn" onclick="startAnimation(false)">Incorrect</button>';
+  document.body.appendChild(div);
+}
 </script>
 </body>
 </html>
