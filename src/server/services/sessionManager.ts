@@ -44,23 +44,28 @@ export class GameSession {
 
   private async generateAdditionalQuestions(): Promise<void> {
     try {
+      let addedCount = 0;
       console.log(`[${this.id}] Starting background generation of 50 questions (${this.language})...`);
-      const generated = await generateQuestionsWithAgent(50, this.language);
-      if (generated.length > 0) {
-        const questions: QuestionWithAnswer[] = generated.map((g, i) => ({
-          id: TOTAL_QUESTIONS + i + 1,
-          category: g.category || "safe",
-          difficulty: g.difficulty || "medium",
-          conversation: g.conversation,
-          toolName: g.toolName,
-          toolParams: g.toolParams,
-          correctAnswer: g.correctAnswer,
-          explanation: g.explanation,
-          timeLimit: TIME_LIMIT_MS,
-        }));
-        this.storage.addQuestions(questions);
-        console.log(`[${this.id}] Added ${questions.length} generated questions to pool`);
-      }
+      await generateQuestionsWithAgent(50, this.language, {
+        getExistingSummaries: () => this.storage.getExistingCommandSummaries(),
+        onBatch: (batch) => {
+          const questions: QuestionWithAnswer[] = batch.map((g, i) => ({
+            id: TOTAL_QUESTIONS + addedCount + i + 1,
+            category: g.category || "safe",
+            difficulty: g.difficulty || "medium",
+            conversation: g.conversation,
+            toolName: g.toolName,
+            toolParams: g.toolParams,
+            correctAnswer: g.correctAnswer,
+            explanation: g.explanation,
+            timeLimit: TIME_LIMIT_MS,
+          }));
+          this.storage.addQuestions(questions);
+          addedCount += questions.length;
+          console.log(`[${this.id}] Added ${questions.length} questions to pool (total added: ${addedCount})`);
+        },
+      });
+      console.log(`[${this.id}] Background generation complete. ${addedCount} questions added.`);
     } catch (err) {
       console.error(`[${this.id}] Background generation failed:`, err);
     }

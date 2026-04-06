@@ -7,11 +7,17 @@ import {
 } from "../prompt.js";
 import type { AnswerHistoryEntry, GameResults } from "../types.js";
 
-const BATCH_SIZE = 10;
+const BATCH_SIZE = 25;
+
+interface GenerateOptions {
+  onBatch?: (questions: GeneratedQuestion[]) => void;
+  getExistingSummaries?: () => string[];
+}
 
 export async function generateQuestionsWithAgent(
   count: number,
-  language: Language
+  language: Language,
+  options?: GenerateOptions
 ): Promise<GeneratedQuestion[]> {
   const allQuestions: GeneratedQuestion[] = [];
   const batches = Math.ceil(count / BATCH_SIZE);
@@ -20,10 +26,16 @@ export async function generateQuestionsWithAgent(
     const batchCount = Math.min(BATCH_SIZE, count - i * BATCH_SIZE);
     console.log(`[agent] Generating batch ${i + 1}/${batches} (${batchCount} questions)...`);
 
+    // Collect existing summaries for dedup
+    const existing = options?.getExistingSummaries?.() || [];
+
     try {
-      const questions = await generateBatch(batchCount, language);
+      const questions = await generateBatch(batchCount, language, existing);
       allQuestions.push(...questions);
       console.log(`[agent] Batch ${i + 1} done: ${questions.length} questions (total: ${allQuestions.length})`);
+      if (options?.onBatch && questions.length > 0) {
+        options.onBatch(questions);
+      }
     } catch (err) {
       console.error(`[agent] Batch ${i + 1} failed:`, err);
     }
@@ -34,9 +46,10 @@ export async function generateQuestionsWithAgent(
 
 async function generateBatch(
   count: number,
-  language: Language
+  language: Language,
+  existingSummaries: string[]
 ): Promise<GeneratedQuestion[]> {
-  const prompt = buildBatchPrompt(count, language);
+  const prompt = buildBatchPrompt(count, language, existingSummaries);
   const schema = questionBatchSchemaObj(count);
   let structuredOutput: unknown = null;
 

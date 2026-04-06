@@ -2,6 +2,7 @@ import type { QuestionWithAnswer } from "../types.js";
 
 export class MemoryStorage {
   private queue: QuestionWithAnswer[] = [];
+  private served: QuestionWithAnswer[] = [];
 
   constructor(initialQuestions: QuestionWithAnswer[]) {
     this.queue = [...initialQuestions];
@@ -13,7 +14,9 @@ export class MemoryStorage {
   }
 
   takeNext(): QuestionWithAnswer | null {
-    return this.queue.shift() ?? null;
+    const q = this.queue.shift() ?? null;
+    if (q) this.served.push(q);
+    return q;
   }
 
   shuffle(): void {
@@ -25,5 +28,15 @@ export class MemoryStorage {
 
   remaining(): number {
     return this.queue.length;
+  }
+
+  /** Returns summaries of all known questions (served + queued) for dedup */
+  getExistingCommandSummaries(): string[] {
+    return [...this.served, ...this.queue].map((q) => {
+      if (q.toolName === "Bash") {
+        return `Bash: ${(q.toolParams as { command?: string }).command || ""}`;
+      }
+      return `${q.toolName}: ${(q.toolParams as { file_path?: string }).file_path || ""}`;
+    });
   }
 }

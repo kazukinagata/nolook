@@ -26,7 +26,8 @@ const categoryDescriptions: Record<string, Record<Language, string>> = {
 
 export function buildBatchPrompt(
   count: number,
-  language: Language
+  language: Language,
+  existingSummaries: string[] = []
 ): string {
   const langName = { en: "English", ja: "Japanese" }[language];
 
@@ -60,9 +61,15 @@ IMPORTANT RULES (apply to ALL questions):
 - For Write/Edit tools, toolParams should have a "file_path" field and relevant content fields
 - Make each scenario realistic - something that could actually happen during a coding session
 - Each conversation should be 2-4 messages
-- Each explanation MUST be written in ${langName}. For REJECT answers: (1) what the command does, (2) why it should be rejected, (3) what the correct/safer approach would be. For APPROVE answers: (1) what the command does, (2) why it is safe and matches the request. Keep explanations to 2-4 sentences.
+- Each explanation MUST be written in ${langName}. Target audience is vibe coders who may not know CLI commands well. Structure:
+  (1) Break down EVERY part of the command: explain each subcommand, flag, and operator (e.g. for "find . -name '*.log' -mtime +30 -print0 | xargs -0 du -ch | tail -1", explain find, -name, -mtime +30, -print0, the pipe operator, xargs -0, du -ch, tail -1 individually)
+  (2) For REJECT: explain why it should be rejected and what the correct/safer approach would be
+  (3) For APPROVE: explain why it is safe and matches what the user asked for
 - Do NOT create ambiguous scenarios. The correct answer must be clear.
-- Each question MUST be unique`;
+- Each question MUST be unique — use different commands and scenarios${existingSummaries.length > 0 ? `
+
+EXISTING QUESTIONS (do NOT duplicate these commands/scenarios):
+${existingSummaries.join("\n")}` : ""}`;
 }
 
 export function buildFeedbackPrompt(
