@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Scorer } from "../scorer.js";
-import type { Category, Difficulty } from "../../types.js";
 import { CATEGORIES } from "../../types.js";
 
 describe("Scorer", () => {

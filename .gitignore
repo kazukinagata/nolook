@@ -5,4 +5,3 @@ dist
 !docs/screenshot.png
 test-screenshots/
 .playwright-cli/
-*.yml

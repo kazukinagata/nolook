@@ -83,7 +83,7 @@ export class GameSession {
     this.currentQuestion = question;
     this.currentQuestion.id = this.questionNumber + 1;
 
-    const { correctAnswer, explanation, ...q } = this.currentQuestion;
+    const { correctAnswer: _ca, explanation: _ex, ...q } = this.currentQuestion;
     return q;
   }
 
