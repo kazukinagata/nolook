@@ -21,7 +21,7 @@ export async function generateQuestionsWithAgent(
       prompt,
       options: {
         model: "haiku",
-        maxTurns: 1,
+        maxTurns: 5,
         tools: [],
         outputFormat: { type: "json_schema", schema },
       },
@@ -56,7 +56,7 @@ export async function* generateFeedbackStream(
     prompt,
     options: {
       model: "haiku",
-      maxTurns: 1,
+      maxTurns: 3,
       tools: [],
     },
   })) {

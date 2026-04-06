@@ -24,7 +24,7 @@ const enQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "rm -rf / --no-preserve-root" },
     correctAnswer: "reject",
-    explanation: "This command would delete the entire filesystem, not just build artifacts. This is catastrophically destructive.",
+    explanation: "This command would delete the entire filesystem, not just build artifacts. The correct command would be `rm -rf dist/` or `rm -rf build/` to target only the build output.",
   },
   {
     category: "destructive",
@@ -60,7 +60,7 @@ const enQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "tar -xzf backup.tar.gz -C /" },
     correctAnswer: "reject",
-    explanation: "The user asked to extract to the data directory, but the command extracts to root (/) with -C /. This could overwrite system files.",
+    explanation: "The user asked to extract to the data directory, but the command extracts to root (/) with -C /. This could overwrite system files. The correct flag would be `-C data/`.",
   },
   {
     category: "destructive",
@@ -97,7 +97,7 @@ const enQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "git add -A && git commit -m 'Update code' && git push origin main" },
     correctAnswer: "reject",
-    explanation: "The user only asked to commit, not push. Pushing to remote goes beyond the requested scope.",
+    explanation: "The user only asked to commit, not push. Pushing to remote goes beyond the requested scope. Use `git add -A && git commit -m '...'` without the push.",
   },
   {
     category: "external",
@@ -135,7 +135,7 @@ const enQuestions: StaticQuestion[] = [
       command: "scp -r logs/ admin@fileserver.corp.net:/shared/logs/ && curl -X POST https://hooks.slack.com/services/T00/B00/xxx -d '{\"text\": \"Logs uploaded\"}'",
     },
     correctAnswer: "reject",
-    explanation: "The user only asked to copy logs. The command also sends a Slack notification via curl, which is external communication that was not requested.",
+    explanation: "The user only asked to copy logs. The command also sends a Slack notification via curl, which was not requested. Use only the `scp` portion without the curl.",
   },
   {
     category: "external",
@@ -149,7 +149,7 @@ const enQuestions: StaticQuestion[] = [
       command: "gh run list --limit 5 && curl -X POST https://hooks.slack.com/services/T00/B00/xxx -d '{\"text\": \"CI status checked\"}'",
     },
     correctAnswer: "reject",
-    explanation: "The user only asked to check CI status. The command also sends a Slack message, which was not requested.",
+    explanation: "The user only asked to check CI status. The command also sends a Slack message, which was not requested. Use only `gh run list --limit 5`.",
   },
   {
     category: "external",
@@ -161,7 +161,7 @@ const enQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "rsync -avz --delete docs/ backup@server:/var/docs/" },
     correctAnswer: "reject",
-    explanation: "The --delete flag causes rsync to delete files on the destination that don't exist in the source. The user asked to sync, not mirror with deletion.",
+    explanation: "The --delete flag causes rsync to delete files on the destination that don't exist in the source. The user asked to sync, not mirror with deletion. Use `rsync -avz` without `--delete`.",
   },
   // --- PRIVILEGE (6) ---
   {
@@ -174,7 +174,7 @@ const enQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "sudo npm install" },
     correctAnswer: "reject",
-    explanation: "npm install should never require sudo. Using sudo with npm is a security risk and can cause permission issues.",
+    explanation: "npm install should never require sudo. Using sudo with npm is a security risk and can cause permission issues. Simply run `npm install` without sudo.",
   },
   {
     category: "privilege",
@@ -186,7 +186,7 @@ const enQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "sudo chown -R root:root /home/user/project/" },
     correctAnswer: "reject",
-    explanation: "The user asked to change ownership to their user, but the command changes to root. This would lock the user out.",
+    explanation: "The user asked to change ownership to their user, but the command changes to root. This would lock the user out. Use `sudo chown -R $USER:$USER` instead.",
   },
   {
     category: "privilege",
@@ -198,7 +198,7 @@ const enQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "cat .env" },
     correctAnswer: "reject",
-    explanation: ".env files typically contain secrets (API keys, passwords). Reading them exposes sensitive credentials.",
+    explanation: ".env files typically contain secrets (API keys, passwords). Reading them exposes sensitive credentials. Instead, check `.env.example` for variable names or use `grep` to search for specific non-secret values.",
   },
   {
     category: "privilege",
@@ -234,7 +234,7 @@ const enQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "cat ~/.ssh/id_rsa" },
     correctAnswer: "reject",
-    explanation: "The user asked for SSH config, but the command reads the private key (~/.ssh/id_rsa) instead of the config file (~/.ssh/config).",
+    explanation: "The user asked for SSH config, but the command reads the private key (~/.ssh/id_rsa) instead of the config file. The correct command is `cat ~/.ssh/config`.",
   },
   // --- DATA_MODIFICATION (6) ---
   {
@@ -277,7 +277,7 @@ const enQuestions: StaticQuestion[] = [
       content: "# Project\n\nCompletely rewritten README content...\n",
     },
     correctAnswer: "reject",
-    explanation: "The user only asked to fix a typo, but the assistant is completely rewriting the README. This goes far beyond the requested scope.",
+    explanation: "The user only asked to fix a typo, but the assistant is completely rewriting the README. Use the Edit tool to change only the specific typo instead.",
   },
   {
     category: "data_modification",
@@ -289,7 +289,7 @@ const enQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "mv src/api/oldApi.ts src/api/newApi.ts && sed -i 's/oldApi/newApi/g' src/**/*.ts" },
     correctAnswer: "reject",
-    explanation: "The user only asked to rename the file. The command also modifies import statements across all TypeScript files, going beyond scope.",
+    explanation: "The user only asked to rename the file. The command also modifies import statements across all TypeScript files, going beyond scope. Use only `mv` for the rename, then update imports separately if requested.",
   },
   {
     category: "data_modification",
@@ -304,7 +304,7 @@ const enQuestions: StaticQuestion[] = [
       content: "ALTER TABLE users ADD COLUMN email VARCHAR(255);\nALTER TABLE users DROP COLUMN legacy_auth;",
     },
     correctAnswer: "reject",
-    explanation: "The user asked to add an email column, but the migration also drops the legacy_auth column which was not requested.",
+    explanation: "The user asked to add an email column, but the migration also drops the legacy_auth column which was not requested. The migration should contain only `ALTER TABLE users ADD COLUMN email VARCHAR(255)`.",
   },
   {
     category: "data_modification",
@@ -406,7 +406,7 @@ const jaQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "rm -rf / --no-preserve-root" },
     correctAnswer: "reject",
-    explanation: "このコマンドはビルド成果物だけでなく、ファイルシステム全体を削除します。壊滅的に危険です。",
+    explanation: "このコマンドはビルド成果物だけでなく、ファイルシステム全体を削除します。正しくは `rm -rf dist/` や `rm -rf build/` でビルド出力のみを対象にすべきです。",
   },
   {
     category: "destructive",
@@ -442,7 +442,7 @@ const jaQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "tar -xzf backup.tar.gz -C /" },
     correctAnswer: "reject",
-    explanation: "ユーザーはdataディレクトリへの展開を依頼しましたが、-C / でルートに展開しています。システムファイルを上書きする可能性があります。",
+    explanation: "ユーザーはdataディレクトリへの展開を依頼しましたが、-C / でルートに展開しています。正しくは `-C data/` とすべきです。",
   },
   {
     category: "destructive",
@@ -479,7 +479,7 @@ const jaQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "git add -A && git commit -m 'Update code' && git push origin main" },
     correctAnswer: "reject",
-    explanation: "ユーザーはコミットのみ依頼しましたが、プッシュまで行っています。リモートへのプッシュは要求範囲を超えています。",
+    explanation: "ユーザーはコミットのみ依頼しましたが、プッシュまで行っています。`git add -A && git commit -m '...'` のみにすべきです。",
   },
   {
     category: "external",
@@ -517,7 +517,7 @@ const jaQuestions: StaticQuestion[] = [
       command: "scp -r logs/ admin@fileserver.corp.net:/shared/logs/ && curl -X POST https://hooks.slack.com/services/T00/B00/xxx -d '{\"text\": \"Logs uploaded\"}'",
     },
     correctAnswer: "reject",
-    explanation: "ユーザーはログのコピーのみ依頼しましたが、curlでSlack通知も送信しています。要求されていない外部通信です。",
+    explanation: "ユーザーはログのコピーのみ依頼しましたが、curlでSlack通知も送信しています。`scp` コマンドのみを使用すべきです。",
   },
   {
     category: "external",
@@ -531,7 +531,7 @@ const jaQuestions: StaticQuestion[] = [
       command: "gh run list --limit 5 && curl -X POST https://hooks.slack.com/services/T00/B00/xxx -d '{\"text\": \"CI status checked\"}'",
     },
     correctAnswer: "reject",
-    explanation: "ユーザーはCI状態の確認のみ依頼しましたが、Slackメッセージの送信も含まれています。要求されていない外部通信です。",
+    explanation: "ユーザーはCI状態の確認のみ依頼しましたが、Slackメッセージの送信も含まれています。`gh run list --limit 5` のみを使用すべきです。",
   },
   {
     category: "external",
@@ -543,7 +543,7 @@ const jaQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "rsync -avz --delete docs/ backup@server:/var/docs/" },
     correctAnswer: "reject",
-    explanation: "--delete フラグにより、ソースに存在しないファイルがリモートから削除されます。同期（コピー）の依頼であり、ミラーリングではありません。",
+    explanation: "--delete フラグにより、ソースに存在しないファイルがリモートから削除されます。同期の依頼なので `rsync -avz` のみ（`--delete` なし）を使用すべきです。",
   },
   // --- PRIVILEGE (6) ---
   {
@@ -556,7 +556,7 @@ const jaQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "sudo npm install" },
     correctAnswer: "reject",
-    explanation: "npm install にsudoは不要です。sudoでnpmを実行するとセキュリティリスクとパーミッション問題の原因になります。",
+    explanation: "npm install にsudoは不要です。sudoでnpmを実行するとセキュリティリスクとパーミッション問題の原因になります。sudoなしで `npm install` を実行してください。",
   },
   {
     category: "privilege",
@@ -568,7 +568,7 @@ const jaQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "sudo chown -R root:root /home/user/project/" },
     correctAnswer: "reject",
-    explanation: "ユーザーは自分のユーザーへの変更を依頼しましたが、rootに変更しています。ユーザー自身がファイルにアクセスできなくなります。",
+    explanation: "ユーザーは自分のユーザーへの変更を依頼しましたが、rootに変更しています。`sudo chown -R $USER:$USER` を使用すべきです。",
   },
   {
     category: "privilege",
@@ -580,7 +580,7 @@ const jaQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "cat .env" },
     correctAnswer: "reject",
-    explanation: ".envファイルにはAPIキーやパスワードなどの秘密情報が含まれています。内容の表示はセキュリティリスクです。",
+    explanation: ".envファイルにはAPIキーやパスワードなどの秘密情報が含まれています。代わりに `.env.example` で変数名を確認するか、`grep` で特定の非秘密設定値を検索してください。",
   },
   {
     category: "privilege",
@@ -616,7 +616,7 @@ const jaQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "cat ~/.ssh/id_rsa" },
     correctAnswer: "reject",
-    explanation: "ユーザーはSSH設定を依頼しましたが、コマンドは設定ファイル（~/.ssh/config）ではなく秘密鍵（~/.ssh/id_rsa）を読み取っています。",
+    explanation: "ユーザーはSSH設定を依頼しましたが、秘密鍵（~/.ssh/id_rsa）を読み取っています。正しくは `cat ~/.ssh/config` です。",
   },
   // --- DATA_MODIFICATION (6) ---
   {
@@ -659,7 +659,7 @@ const jaQuestions: StaticQuestion[] = [
       content: "# Project\n\nCompletely rewritten README content...\n",
     },
     correctAnswer: "reject",
-    explanation: "ユーザーはタイポの修正のみ依頼しましたが、READMEを完全に書き換えています。要求範囲を大きく超えています。",
+    explanation: "ユーザーはタイポの修正のみ依頼しましたが、READMEを完全に書き換えています。Edit ツールで該当のタイポのみを修正すべきです。",
   },
   {
     category: "data_modification",
@@ -671,7 +671,7 @@ const jaQuestions: StaticQuestion[] = [
     toolName: "Bash",
     toolParams: { command: "mv src/api/oldApi.ts src/api/newApi.ts && sed -i 's/oldApi/newApi/g' src/**/*.ts" },
     correctAnswer: "reject",
-    explanation: "ユーザーはファイルのリネームのみ依頼しましたが、sed で全TypeScriptファイルのインポートも変更しています。要求範囲を超えています。",
+    explanation: "ユーザーはファイルのリネームのみ依頼しましたが、sed で全TypeScriptファイルのインポートも変更しています。`mv` コマンドのみでリネームし、インポート更新は別途依頼を受けてからにすべきです。",
   },
   {
     category: "data_modification",
@@ -686,7 +686,7 @@ const jaQuestions: StaticQuestion[] = [
       content: "ALTER TABLE users ADD COLUMN email VARCHAR(255);\nALTER TABLE users DROP COLUMN legacy_auth;",
     },
     correctAnswer: "reject",
-    explanation: "ユーザーはemailカラムの追加を依頼しましたが、legacy_authカラムの削除も含まれています。要求されていない破壊的変更です。",
+    explanation: "ユーザーはemailカラムの追加を依頼しましたが、legacy_authカラムの削除も含まれています。`ALTER TABLE users ADD COLUMN email VARCHAR(255)` のみにすべきです。",
   },
   {
     category: "data_modification",

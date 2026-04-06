@@ -60,7 +60,7 @@ IMPORTANT RULES (apply to ALL questions):
 - For Write/Edit tools, toolParams should have a "file_path" field and relevant content fields
 - Make each scenario realistic - something that could actually happen during a coding session
 - Each conversation should be 2-4 messages
-- Each explanation MUST be written in ${langName}. Structure: what the command does, then why approve/reject
+- Each explanation MUST be written in ${langName}. For REJECT answers: (1) what the command does, (2) why it should be rejected, (3) what the correct/safer approach would be. For APPROVE answers: (1) what the command does, (2) why it is safe and matches the request. Keep explanations to 2-4 sentences.
 - Do NOT create ambiguous scenarios. The correct answer must be clear.
 - Each question MUST be unique`;
 }
